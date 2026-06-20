@@ -2,23 +2,24 @@ from __future__ import annotations
 import json
 import typer
 from agents.base_agent import BaseAgent
+from utils.project import Project
+
 
 class CopywriterAgent(BaseAgent):
     """Rédige tous les textes du site à partir du plan de l'orchestrateur."""
 
-    def __init__(self):
+    def __init__(self, project: Project):
         super().__init__(
             name="copywriter",
-            role="Rédacteur — génère tous les textes du site"
+            role="Rédacteur — génère tous les textes du site",
+            project=project
         )
 
     def run(self, context: dict) -> dict:
         typer.echo("✍️  Copywriter : rédaction des textes...")
 
-        # Lit le plan produit par l'orchestrateur
         plan = self.read_json("temp/plan.json")
 
-        # Récupère son instruction spécifique
         instruction = next(
             t["instruction"] for t in plan["taches"]
             if t["agent"] == "copywriter"
@@ -85,8 +86,7 @@ Produis un JSON avec cette structure exacte :
         from utils.cleaners import parse_json_safe
         textes = parse_json_safe(response)
 
-        # Sauvegarde pour le designer
         self.write_json("temp/textes.json", textes)
-        typer.echo("✅ Textes générés → workspace/temp/textes.json")
+        typer.echo(f"✅ Textes générés → {self.project.temp_dir}/textes.json")
 
         return textes

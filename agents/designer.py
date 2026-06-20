@@ -1,16 +1,18 @@
 from __future__ import annotations
 import json
 import typer
-from pathlib import Path
 from agents.base_agent import BaseAgent
+from utils.project import Project
+
 
 class DesignerAgent(BaseAgent):
     """Génère le HTML et CSS complet du site."""
 
-    def __init__(self):
+    def __init__(self, project: Project):
         super().__init__(
             name="designer",
-            role="Designer — génère le HTML/CSS du site"
+            role="Designer — génère le HTML/CSS du site",
+            project=project
         )
 
     def _generate_html(self, textes: dict, style_guide: dict, css: str) -> str:
@@ -99,26 +101,19 @@ Fonctionnalités :
         textes = self.read_json("temp/textes.json")
         style_guide = plan["style_guide"]
 
-        # 3 appels séparés — plus fiable et plus précis
         css = self._generate_css(style_guide)
         html = self._generate_html(textes, style_guide, css)
         js = self._generate_js()
 
-        # Lit le projet cible depuis le brief
-        brief = self.read_json("input/brief.json")
-        project_id = brief["output"]["project_id"]
-
-        # Écrit les fichiers
-        output_dir = Path("workspace/output") / project_id
+        output_dir = self.project.output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
-        assets_dir = output_dir / "assets"
-        assets_dir.mkdir(exist_ok=True)
+        (output_dir / "assets").mkdir(exist_ok=True)
 
         (output_dir / "index.html").write_text(html, encoding="utf-8")
         (output_dir / "style.css").write_text(css, encoding="utf-8")
         (output_dir / "main.js").write_text(js, encoding="utf-8")
 
-        typer.echo(f"✅ Site généré → workspace/output/{project_id}/")
+        typer.echo(f"✅ Site généré → {output_dir}/")
         typer.echo("   • index.html")
         typer.echo("   • style.css")
         typer.echo("   • main.js")
@@ -127,18 +122,12 @@ Fonctionnalités :
             "output_dir": str(output_dir),
             "fichiers": ["index.html", "style.css", "main.js"]
         }
-    
+
     def fix(self, problemes: list, css: str, html: str) -> str:
-        """
-        Génère UNIQUEMENT les règles CSS manquantes (pas tout le CSS).
-        Retourne les nouvelles règles à ajouter.
-        """
+        """Génère UNIQUEMENT les règles CSS manquantes signalées par le validateur."""
         typer.echo("   🔧 Designer : génération des règles manquantes...")
 
-        classes_manquantes = [
-            p for p in problemes
-            if "absente du CSS" in p
-        ]
+        classes_manquantes = [p for p in problemes if "absente du CSS" in p]
 
         if not classes_manquantes:
             typer.echo("   ℹ️  Aucun problème de classe à corriger")
@@ -150,10 +139,8 @@ Tu génères UNIQUEMENT les nouvelles règles CSS pour ces classes.
 Ne réécris PAS le CSS existant. Génère SEULEMENT les règles manquantes.
 Réponds sans balise markdown, juste les règles CSS."""
 
-        # Extrait juste les noms de classes des messages de problème
         noms_classes = []
         for p in classes_manquantes:
-            # Le message est : "⚠️  Classe 'xxx' utilisée..."
             debut = p.find("'") + 1
             fin = p.find("'", debut)
             noms_classes.append(p[debut:fin])
@@ -174,7 +161,4 @@ Commence directement par la première règle CSS."""
 
         from utils.cleaners import clean_code_output
         response = self.call_claude(system_prompt, user_message, max_tokens=2048)
-        nouvelles_regles = clean_code_output(response)
-
-        # On retourne SEULEMENT les nouvelles règles
-        return nouvelles_regles
+        return clean_code_output(response)

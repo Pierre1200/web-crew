@@ -3,25 +3,26 @@ import os
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
+from utils.project import Project
+
 
 class BaseAgent:
     """Classe mère dont héritent tous les agents."""
 
-    def __init__(self, name: str, role: str):
+    def __init__(self, name: str, role: str, project: Project):
         self.name = name
         self.role = role
+        self.project = project
         self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        self.workspace = Path("workspace")
         self.logger = self._setup_logger()
 
     def _setup_logger(self):
-        """Configure les logs de l'agent."""
-        logger = logging.getLogger(self.name)
+        """Configure les logs de l'agent dans le dossier du projet."""
+        logger = logging.getLogger(f"{self.project.name}.{self.name}")
         logger.setLevel(logging.INFO)
 
-        # Crée un fichier de log par agent
-        log_file = Path("logs") / f"{self.name}.log"
+        self.project.logs_dir.mkdir(parents=True, exist_ok=True)
+        log_file = self.project.logs_dir / f"{self.name}.log"
         handler = logging.FileHandler(log_file)
         handler.setFormatter(logging.Formatter(
             "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
@@ -30,14 +31,19 @@ class BaseAgent:
         return logger
 
     def read_json(self, filepath: str) -> dict:
-        """Lit un fichier JSON du workspace."""
-        path = self.workspace / filepath
+        """Lit un fichier JSON relatif à la racine du projet."""
+        path = self.project.root / filepath
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
+    def read_text(self, filepath: str) -> str:
+        """Lit un fichier texte relatif à la racine du projet."""
+        path = self.project.root / filepath
+        return path.read_text(encoding="utf-8")
+
     def write_json(self, filepath: str, data: dict):
-        """Écrit un fichier JSON dans le workspace."""
-        path = self.workspace / filepath
+        """Écrit un fichier JSON relatif à la racine du projet."""
+        path = self.project.root / filepath
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -67,8 +73,5 @@ class BaseAgent:
         return response
 
     def run(self, context: dict) -> dict:
-        """
-        Méthode principale — chaque agent DOIT la redéfinir.
-        Reçoit un contexte, retourne un résultat.
-        """
+        """Méthode principale — chaque agent DOIT la redéfinir."""
         raise NotImplementedError(f"L'agent {self.name} doit implémenter run()")
