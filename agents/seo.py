@@ -90,7 +90,7 @@ Produis un JSON avec cette structure exacte :
 
         html = re.sub(
             r'(<head[^>]*>)',
-            r'\1\n' + bloc_seo.replace('\\', '\\\\'),
+            lambda m: m.group(1) + '\n' + bloc_seo,
             html,
             count=1
         )

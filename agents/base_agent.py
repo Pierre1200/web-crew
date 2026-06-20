@@ -2,7 +2,6 @@ import anthropic
 import os
 import json
 import logging
-from pathlib import Path
 from utils.project import Project
 
 
@@ -48,12 +47,6 @@ class BaseAgent:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         self.logger.info(f"Fichier écrit : {path}")
-
-    def load_prompt(self, prompt_name: str) -> str:
-        """Charge un system prompt depuis le dossier prompts/."""
-        path = Path("prompts") / f"{prompt_name}.txt"
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
 
     def call_claude(self, system_prompt: str, user_message: str, max_tokens: int = 4096) -> str:
         """Appelle l'API Claude et retourne la réponse texte."""

@@ -3,6 +3,7 @@ import re
 import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
+from utils.cleaners import extract_css_classes
 
 
 class ValidatorAgent(BaseAgent):
@@ -46,7 +47,7 @@ class ValidatorAgent(BaseAgent):
             for classe in match.split():
                 classes_html.add(classe)
 
-        classes_css = set(re.findall(r'\.([a-zA-Z][\w-]*)', css))
+        classes_css = set(extract_css_classes(css))
 
         for classe in classes_html:
             if classe not in classes_css:
