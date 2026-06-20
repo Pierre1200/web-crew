@@ -3,6 +3,7 @@ Fonctions utilitaires de nettoyage des réponses de l'API Claude.
 Réutilisables par tous les agents.
 """
 import json
+import re
 
 
 def strip_markdown_fences(text: str) -> str:
@@ -39,6 +40,16 @@ def parse_json_safe(text: str) -> dict:
             f"Erreur à la position {e.pos}. "
             f"Début du contenu reçu : {clean[:200]}..."
         ) from e
+
+
+def extract_css_classes(css: str) -> list:
+    """Extrait les noms de classes uniques d'un CSS (ex: 'navbar__link', 'btn--primary').
+
+    Remplace le passage du CSS complet dans le prompt HTML : ~250 tokens au lieu de ~3500.
+    Le modèle garde la cohérence des classes sans consommer le budget d'output.
+    """
+    classes = re.findall(r'\.([a-zA-Z][\w-]*)', css)
+    return sorted(set(classes))
 
 
 def clean_code_output(text: str) -> str:

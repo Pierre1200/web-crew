@@ -77,11 +77,13 @@ Commence directement par <!DOCTYPE html> et termine OBLIGATOIREMENT par </body> 
 
         sections_str = ", ".join(["nav"] + list(textes.keys()) + ["footer"])
 
-        user_message = f"""Voici le fichier style.css DÉJÀ ÉCRIT :
-{css}
+        from utils.cleaners import clean_code_output, extract_css_classes
+        classes_str = ", ".join(extract_css_classes(css))
 
-Génère un index.html qui utilise EXACTEMENT les classes CSS définies ci-dessus.
-N'invente AUCUNE nouvelle classe — utilise uniquement celles du CSS.
+        user_message = f"""Génère un index.html complet pour un site vitrine.
+
+Classes CSS disponibles — utilise UNIQUEMENT celles-ci, n'en invente aucune :
+{classes_str}
 
 INTERDIT : balise <style>, CSS inline, attributs style="..."
 OBLIGATOIRE : <link rel="stylesheet" href="style.css"> dans le <head>
@@ -93,11 +95,8 @@ Sections dans le <body> : {sections_str}.
 Textes à intégrer :
 {json.dumps(textes, ensure_ascii=False, indent=2)}"""
 
-        from utils.cleaners import clean_code_output
-
         html = clean_code_output(self.call_claude(system_prompt, user_message, max_tokens=8192))
 
-        # Retry automatique si le HTML est tronqué
         if not self._valider_html(html):
             self.logger.warning("HTML tronqué à la 1re tentative — retry...")
             typer.echo("   ⚠️  HTML tronqué, nouvelle tentative...")
