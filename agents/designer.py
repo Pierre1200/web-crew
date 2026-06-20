@@ -21,6 +21,7 @@ class DesignerAgent(BaseAgent):
     Tu génères UNIQUEMENT la structure HTML5, sans CSS inline, sans balise <style>.
     Commence directement par <!DOCTYPE html> et termine par </html>."""
 
+        sections_str = ", ".join(["nav"] + list(textes.keys()) + ["footer"])
         user_message = f"""Voici le fichier style.css DÉJÀ ÉCRIT :
     {css}
 
@@ -31,7 +32,7 @@ class DesignerAgent(BaseAgent):
     OBLIGATOIRE : <link rel="stylesheet" href="style.css"> dans le <head>
     OBLIGATOIRE : <script src="main.js"></script> avant </body>
 
-    Sections dans le <body> : nav, hero, à-propos, expositions, artistes, visiter, newsletter, contact, footer.
+    Sections dans le <body> : {sections_str}.
 
     Textes à intégrer :
     {json.dumps(textes, ensure_ascii=False, indent=2)}"""
@@ -48,23 +49,22 @@ class DesignerAgent(BaseAgent):
 Tu génères UNIQUEMENT du code CSS pur, sans aucun texte avant ou après.
 Commence directement par les variables CSS et termine par la dernière règle."""
 
-        user_message = f"""Génère un style.css complet pour une galerie d'art rurale contemporaine.
+        ambiance = style_guide.get("ambiance", "site web professionnel")
+        user_message = f"""Génère un style.css complet pour : {ambiance}.
 
-Style guide :
+Style guide à respecter scrupuleusement :
 {json.dumps(style_guide, ensure_ascii=False, indent=2)}
 
-Contraintes :
-- Variables CSS en :root pour toutes les couleurs et fontes
+Contraintes techniques :
+- Variables CSS en :root pour toutes les couleurs et fontes (utilise les couleurs du style guide)
 - Reset CSS minimal en début de fichier
 - Mobile-first avec breakpoints 768px et 1200px
-- Navigation sticky transparente qui devient blanche au scroll
+- Navigation sticky transparente qui devient colorée au scroll
 - Hero plein écran avec overlay sombre
-- Grille expositions : 1 col mobile / 2 col tablette / 3 col desktop
-- Grille artistes : 2 col mobile / 4 col desktop
-- Boutons CTA en terre de sienne (#A0522D)
+- Grilles de contenu : 1 col mobile / 2 col tablette / 3 col desktop
 - Animations fade-in avec classe .visible
-- Footer sobre en anthracite
-- Sections alternées blanc cassé et blanc pur
+- Footer sobre
+- Sections alternées
 - Code organisé et commenté par section"""
 
         from utils.cleaners import clean_code_output
@@ -78,7 +78,7 @@ Contraintes :
         system_prompt = """Tu es un développeur JavaScript vanilla expert.
 Tu génères UNIQUEMENT du code JavaScript pur, sans aucun texte avant ou après."""
 
-        user_message = """Génère un main.js pour un site vitrine de galerie d'art.
+        user_message = """Génère un main.js pour un site vitrine statique.
 
 Fonctionnalités :
 - Intersection Observer pour les animations fade-in au scroll (ajoute classe .visible)
@@ -104,8 +104,12 @@ Fonctionnalités :
         html = self._generate_html(textes, style_guide, css)
         js = self._generate_js()
 
+        # Lit le projet cible depuis le brief
+        brief = self.read_json("input/brief.json")
+        project_id = brief["output"]["project_id"]
+
         # Écrit les fichiers
-        output_dir = Path("workspace/output/projet-exemple")
+        output_dir = Path("workspace/output") / project_id
         output_dir.mkdir(parents=True, exist_ok=True)
         assets_dir = output_dir / "assets"
         assets_dir.mkdir(exist_ok=True)
@@ -114,7 +118,7 @@ Fonctionnalités :
         (output_dir / "style.css").write_text(css, encoding="utf-8")
         (output_dir / "main.js").write_text(js, encoding="utf-8")
 
-        typer.echo("✅ Site généré → workspace/output/projet-exemple/")
+        typer.echo(f"✅ Site généré → workspace/output/{project_id}/")
         typer.echo("   • index.html")
         typer.echo("   • style.css")
         typer.echo("   • main.js")
@@ -123,3 +127,54 @@ Fonctionnalités :
             "output_dir": str(output_dir),
             "fichiers": ["index.html", "style.css", "main.js"]
         }
+    
+    def fix(self, problemes: list, css: str, html: str) -> str:
+        """
+        Génère UNIQUEMENT les règles CSS manquantes (pas tout le CSS).
+        Retourne les nouvelles règles à ajouter.
+        """
+        typer.echo("   🔧 Designer : génération des règles manquantes...")
+
+        classes_manquantes = [
+            p for p in problemes
+            if "absente du CSS" in p
+        ]
+
+        if not classes_manquantes:
+            typer.echo("   ℹ️  Aucun problème de classe à corriger")
+            return ""
+
+        system_prompt = """Tu es un développeur CSS expert.
+On te donne une liste de classes CSS manquantes et le HTML qui les utilise.
+Tu génères UNIQUEMENT les nouvelles règles CSS pour ces classes.
+Ne réécris PAS le CSS existant. Génère SEULEMENT les règles manquantes.
+Réponds sans balise markdown, juste les règles CSS."""
+
+        # Extrait juste les noms de classes des messages de problème
+        noms_classes = []
+        for p in classes_manquantes:
+            # Le message est : "⚠️  Classe 'xxx' utilisée..."
+            debut = p.find("'") + 1
+            fin = p.find("'", debut)
+            noms_classes.append(p[debut:fin])
+
+        plan = self.read_json("temp/plan.json")
+        couleurs = plan.get("style_guide", {}).get("couleurs", [])
+        couleurs_str = ", ".join(couleurs) if couleurs else "les couleurs définies dans le projet"
+
+        user_message = f"""Voici le HTML qui utilise ces classes :
+{html}
+
+Classes à styler (actuellement absentes du CSS) :
+{', '.join(noms_classes)}
+
+Génère UNIQUEMENT les règles CSS pour ces {len(noms_classes)} classes.
+Respecte la palette du projet : {couleurs_str}.
+Commence directement par la première règle CSS."""
+
+        from utils.cleaners import clean_code_output
+        response = self.call_claude(system_prompt, user_message, max_tokens=2048)
+        nouvelles_regles = clean_code_output(response)
+
+        # On retourne SEULEMENT les nouvelles règles
+        return nouvelles_regles

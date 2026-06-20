@@ -26,8 +26,8 @@ class CopywriterAgent(BaseAgent):
 
         style_guide = plan["style_guide"]
 
-        system_prompt = """Tu es un rédacteur web expert en communication culturelle et artistique.
-Tu rédiges des textes pour des galeries d'art et associations culturelles françaises.
+        system_prompt = """Tu es un rédacteur web expert.
+Tu rédiges des textes professionnels adaptés au secteur et au ton définis dans le brief.
 Réponds UNIQUEMENT en JSON valide, sans balises markdown, sans ```json.
 Les textes doivent être immédiatement utilisables sur le site, en français."""
 
