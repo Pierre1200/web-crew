@@ -1,3 +1,12 @@
 .env
 .venv
 __pycache__
+
+# Ancien système — archivé
+workspace/
+logs/
+
+# Artefacts générés par projet (logs, fichiers temp, site produit)
+projects/*/logs/
+projects/*/temp/
+projects/*/output/
