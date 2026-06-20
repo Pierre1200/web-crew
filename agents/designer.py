@@ -13,35 +13,32 @@ class DesignerAgent(BaseAgent):
             role="Designer — génère le HTML/CSS du site"
         )
 
-    def _generate_html(self, textes: dict, style_guide: dict) -> str:
-        """Génère le fichier index.html — structure uniquement, sans CSS inline."""
-        typer.echo("   → Génération du HTML...")
+    def _generate_html(self, textes: dict, style_guide: dict, css: str) -> str:
+        """Génère index.html en se basant sur le CSS déjà produit."""
+        typer.echo("   → Génération du HTML (basé sur le CSS)...")
 
         system_prompt = """Tu es un développeur web senior.
-    Tu génères UNIQUEMENT la structure HTML5, sans aucun CSS inline, sans balise <style>.
-    Commence directement par <!DOCTYPE html> et termine par </html>.
-    Sois concis : pas de commentaires excessifs, va droit au but."""
+    Tu génères UNIQUEMENT la structure HTML5, sans CSS inline, sans balise <style>.
+    Commence directement par <!DOCTYPE html> et termine par </html>."""
 
-        user_message = f"""Génère un index.html pour une galerie d'art.
+        user_message = f"""Voici le fichier style.css DÉJÀ ÉCRIT :
+    {css}
+
+    Génère un index.html qui utilise EXACTEMENT les classes CSS définies ci-dessus.
+    N'invente AUCUNE nouvelle classe — utilise uniquement celles du CSS.
+
     INTERDIT : balise <style>, CSS inline, attributs style="..."
-    OBLIGATOIRE : lien <link rel="stylesheet" href="style.css"> dans le <head>
+    OBLIGATOIRE : <link rel="stylesheet" href="style.css"> dans le <head>
+    OBLIGATOIRE : <script src="main.js"></script> avant </body>
 
-    Sections obligatoires dans le <body> :
-    - <nav> navigation avec liens : Accueil, À propos, Expositions, Artistes, Visiter, Contact
-    - <section id="hero"> avec h1 et p sous-titre
-    - <section id="a-propos"> avec h2 et texte
-    - <section id="expositions"> avec h2 et 1 carte exemple
-    - <section id="artistes"> avec h2 et 1 carte exemple
-    - <section id="visiter"> avec h2, texte, bouton RDV
-    - <section id="newsletter"> avec h2, texte, input email + bouton
-    - <section id="contact"> avec h2, formulaire complet
-    - <footer> avec nom association et copyright
+    Sections dans le <body> : nav, hero, à-propos, expositions, artistes, visiter, newsletter, contact, footer.
+
     Textes à intégrer :
-    {json.dumps(textes, ensure_ascii=False, indent=2)}
+    {json.dumps(textes, ensure_ascii=False, indent=2)}"""
 
-    Lien vers main.js avant </body>."""
-
-        return self.call_claude(system_prompt, user_message, max_tokens=8192)
+        from utils.cleaners import clean_code_output
+        response = self.call_claude(system_prompt, user_message, max_tokens=8192)
+        return clean_code_output(response)
 
     def _generate_css(self, style_guide: dict) -> str:
         """Génère le fichier style.css."""
@@ -70,7 +67,9 @@ Contraintes :
 - Sections alternées blanc cassé et blanc pur
 - Code organisé et commenté par section"""
 
-        return self.call_claude(system_prompt, user_message, max_tokens=8192)
+        from utils.cleaners import clean_code_output
+        response = self.call_claude(system_prompt, user_message, max_tokens=8192)
+        return clean_code_output(response)
 
     def _generate_js(self) -> str:
         """Génère le fichier main.js."""
@@ -89,7 +88,9 @@ Fonctionnalités :
 - Formulaire de contact : validation basique + message de confirmation
 - Lazy loading des images avec attribut data-src"""
 
-        return self.call_claude(system_prompt, user_message, max_tokens=2048)
+        from utils.cleaners import clean_code_output
+        response = self.call_claude(system_prompt, user_message, max_tokens=8192)
+        return clean_code_output(response)
 
     def run(self, context: dict) -> dict:
         typer.echo("🎨 Designer : génération du site en 3 étapes...")
@@ -99,8 +100,8 @@ Fonctionnalités :
         style_guide = plan["style_guide"]
 
         # 3 appels séparés — plus fiable et plus précis
-        html = self._generate_html(textes, style_guide)
         css = self._generate_css(style_guide)
+        html = self._generate_html(textes, style_guide, css)
         js = self._generate_js()
 
         # Écrit les fichiers

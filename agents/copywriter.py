@@ -82,15 +82,8 @@ Produis un JSON avec cette structure exacte :
 
         response = self.call_claude(system_prompt, user_message)
 
-        # Nettoyage défensif
-        clean = response.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1]
-        if clean.endswith("```"):
-            clean = clean.rsplit("```", 1)[0]
-        clean = clean.strip()
-
-        textes = json.loads(clean)
+        from utils.cleaners import parse_json_safe
+        textes = parse_json_safe(response)
 
         # Sauvegarde pour le designer
         self.write_json("temp/textes.json", textes)

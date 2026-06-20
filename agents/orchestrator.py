@@ -46,16 +46,9 @@ Produis le plan de travail pour les agents : copywriter, designer, seo."""
         self.logger.info("Génération du plan de travail...")
         response = self.call_claude(system_prompt, user_message)
 
-        # Nettoyage défensif
-        clean = response.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1]
-        if clean.endswith("```"):
-            clean = clean.rsplit("```", 1)[0]
-        clean = clean.strip()
-
-        # Parse le JSON nettoyé
-        plan = json.loads(clean)
+        # Nettoyage + parsing via l'utilitaire partagé
+        from utils.cleaners import parse_json_safe
+        plan = parse_json_safe(response)
 
         # Sauvegarde le plan pour les autres agents
         self.write_json("temp/plan.json", plan)
