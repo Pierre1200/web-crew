@@ -54,7 +54,7 @@ Pour chaque section, génère les sous-champs texte adaptés à son type :
 - Section témoignages/avis → titre_section + au moins un exemple avec auteur et texte
 Adapte librement la structure à chaque section du projet."""
 
-        response = self.call_claude(system_prompt, user_message)
+        response = self.call_claude(system_prompt, user_message, max_tokens=8192)
 
         from utils.cleaners import parse_json_safe
         textes = parse_json_safe(response)
