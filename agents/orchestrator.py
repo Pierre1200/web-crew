@@ -67,6 +67,13 @@ Décide quels agents lancer et produis le plan de travail."""
         from utils.cleaners import parse_json_safe
         plan = parse_json_safe(response)
 
+        required = {"projet", "taches", "style_guide"}
+        missing = required - set(plan.keys())
+        if missing:
+            raise ValueError(f"Plan invalide — clés manquantes : {missing}")
+        if not isinstance(plan.get("taches"), list) or not plan["taches"]:
+            raise ValueError("Plan invalide — 'taches' doit être une liste non vide")
+
         self.write_json("temp/plan.json", plan)
         typer.echo(f"✅ Plan de travail généré → {self.project.temp_dir}/plan.json")
 

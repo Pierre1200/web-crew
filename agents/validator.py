@@ -5,6 +5,9 @@ from agents.base_agent import BaseAgent
 from utils.project import Project
 from utils.cleaners import extract_css_classes
 
+# Classes ajoutées dynamiquement par main.js — absentes du CSS statique, c'est normal
+_JS_DYNAMIC_CLASSES = {"visible", "scrolled", "open", "active", "loaded", "is-open", "is-active"}
+
 
 class ValidatorAgent(BaseAgent):
     """Inspecte le site généré et détecte les problèmes — sans appeler l'IA."""
@@ -50,7 +53,7 @@ class ValidatorAgent(BaseAgent):
         classes_css = set(extract_css_classes(css))
 
         for classe in classes_html:
-            if classe not in classes_css:
+            if classe not in classes_css and classe not in _JS_DYNAMIC_CLASSES:
                 self.problemes.append(
                     f"⚠️  Classe '{classe}' utilisée dans le HTML mais absente du CSS"
                 )

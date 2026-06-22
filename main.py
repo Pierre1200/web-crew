@@ -91,14 +91,26 @@ def generate_safe(
             break
 
         typer.echo(f"\n🔧 Correction de {len(result['problemes'])} problème(s)...")
-        css = (output_dir / "style.css").read_text(encoding="utf-8")
-        html = (output_dir / "index.html").read_text(encoding="utf-8")
 
-        nouvelles_regles = designer.fix(result["problemes"], css, html)
-        if nouvelles_regles:
-            css_complet = css + "\n\n/* === Règles ajoutées par correction auto === */\n" + nouvelles_regles
-            (output_dir / "style.css").write_text(css_complet, encoding="utf-8")
-            typer.echo("   ✅ Nouvelles règles CSS ajoutées")
+        html_problems = [p for p in result["problemes"] if "tronqué" in p or "incomplet" in p]
+        css_problems  = [p for p in result["problemes"] if "absente du CSS" in p]
+
+        if html_problems:
+            typer.echo("   → HTML tronqué détecté — régénération...")
+            ok = designer.regenerate_html()
+            if ok:
+                typer.echo("   ✅ index.html régénéré")
+            else:
+                typer.echo("   ❌ Régénération HTML échouée")
+
+        if css_problems:
+            css = (output_dir / "style.css").read_text(encoding="utf-8")
+            html = (output_dir / "index.html").read_text(encoding="utf-8")
+            nouvelles_regles = designer.fix(css_problems, css, html)
+            if nouvelles_regles:
+                css_complet = css + "\n\n/* === Règles ajoutées par correction auto === */\n" + nouvelles_regles
+                (output_dir / "style.css").write_text(css_complet, encoding="utf-8")
+                typer.echo("   ✅ Nouvelles règles CSS ajoutées")
 
         tentative += 1
     else:

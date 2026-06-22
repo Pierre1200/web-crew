@@ -1,8 +1,10 @@
 from __future__ import annotations
 import json
+import re
 import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
+from utils.cleaners import parse_json_safe
 
 
 class SeoAgent(BaseAgent):
@@ -55,7 +57,6 @@ Produis un JSON avec cette structure exacte :
   }}
 }}"""
 
-        from utils.cleaners import parse_json_safe
         response = self.call_claude(system_prompt, user_message, max_tokens=2048)
         return parse_json_safe(response)
 
@@ -84,7 +85,6 @@ Produis un JSON avec cette structure exacte :
 
         bloc_seo = "\n".join(balises)
 
-        import re
         if "<title>" in html:
             html = re.sub(r'\s*<title>.*?</title>', '', html, flags=re.DOTALL)
 

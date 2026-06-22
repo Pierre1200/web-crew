@@ -62,7 +62,11 @@ class BaseAgent:
         )
 
         response = message.content[0].text
-        self.logger.info(f"Réponse reçue — {len(response)} caractères")
+        usage = message.usage
+        self.logger.info(
+            f"Réponse reçue — {len(response)} caractères | "
+            f"tokens in: {usage.input_tokens}, out: {usage.output_tokens}"
+        )
         return response
 
     def run(self, context: dict) -> dict:

@@ -3,6 +3,7 @@ import json
 import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
+from utils.cleaners import parse_json_safe
 
 
 class CopywriterAgent(BaseAgent):
@@ -56,7 +57,6 @@ Adapte librement la structure à chaque section du projet."""
 
         response = self.call_claude(system_prompt, user_message, max_tokens=8192)
 
-        from utils.cleaners import parse_json_safe
         textes = parse_json_safe(response)
 
         self.write_json("temp/textes.json", textes)

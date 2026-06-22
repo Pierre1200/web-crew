@@ -3,6 +3,7 @@ import json
 import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
+from utils.cleaners import clean_code_output, extract_css_classes
 
 # Mots-clés qui identifient une section avec formulaire
 _FORM_KEYWORDS = {"contact", "newsletter", "reserver", "formulaire", "rdv", "inscription"}
@@ -59,7 +60,6 @@ Contraintes techniques :
 - Sections alternées
 - Code organisé et commenté par section"""
 
-        from utils.cleaners import clean_code_output
         response = self.call_claude(system_prompt, user_message, max_tokens=8192)
         return clean_code_output(response)
 
@@ -77,7 +77,6 @@ Commence directement par <!DOCTYPE html> et termine OBLIGATOIREMENT par </body> 
 
         sections_str = ", ".join(["nav"] + list(textes.keys()) + ["footer"])
 
-        from utils.cleaners import clean_code_output, extract_css_classes
         classes_str = ", ".join(extract_css_classes(css))
 
         user_message = f"""Génère un index.html complet pour un site vitrine.
@@ -101,6 +100,7 @@ Textes à intégrer :
             self.logger.warning("HTML tronqué à la 1re tentative — retry...")
             typer.echo("   ⚠️  HTML tronqué, nouvelle tentative...")
             html = clean_code_output(self.call_claude(system_prompt, user_message, max_tokens=8192))
+
 
         return html
 
@@ -133,7 +133,6 @@ Fonctionnalités obligatoires :
 - Lazy loading des images avec attribut data-src
 - Pour chaque section avec formulaire : validation des champs requis + message de confirmation"""
 
-        from utils.cleaners import clean_code_output
         response = self.call_claude(system_prompt, user_message, max_tokens=4096)
         return clean_code_output(response)
 
@@ -178,6 +177,21 @@ Fonctionnalités obligatoires :
         }
 
     # ------------------------------------------------------------------
+    # regenerate_html() — re-génère index.html depuis les fichiers existants
+    # ------------------------------------------------------------------
+    def regenerate_html(self) -> bool:
+        """Re-génère uniquement index.html (textes et CSS déjà sur disque)."""
+        textes = self.read_json("temp/textes.json")
+        css = (self.project.output_dir / "style.css").read_text(encoding="utf-8")
+        html = self._generate_html(textes, css)
+        if self._valider_html(html):
+            (self.project.output_dir / "index.html").write_text(html, encoding="utf-8")
+            self.logger.info("index.html régénéré avec succès")
+            return True
+        self.logger.error("HTML toujours invalide après regenerate_html")
+        return False
+
+    # ------------------------------------------------------------------
     # fix() — correction ciblée des classes CSS manquantes
     # ------------------------------------------------------------------
     def fix(self, problemes: list, css: str, html: str) -> str:
@@ -217,6 +231,5 @@ Génère UNIQUEMENT les règles CSS pour ces {len(noms_classes)} classes.
 Respecte la palette du projet : {couleurs_str}.
 Commence directement par la première règle CSS."""
 
-        from utils.cleaners import clean_code_output
         response = self.call_claude(system_prompt, user_message, max_tokens=2048)
         return clean_code_output(response)
