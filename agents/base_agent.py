@@ -69,6 +69,51 @@ class BaseAgent:
         )
         return response
 
+    def call_claude_continuable(self, system_prompt: str, user_message: str, max_tokens: int = 8192) -> str:
+        """Appelle Claude et propose de continuer si la limite de tokens est atteinte."""
+        import typer
+
+        messages = [{"role": "user", "content": user_message}]
+        full_response = ""
+
+        while True:
+            self.logger.info(f"Appel API Claude — {len(messages[-1]['content'])} chars (dernier msg)")
+
+            message = self.client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=messages,
+            )
+
+            chunk = message.content[0].text
+            usage = message.usage
+            self.logger.info(
+                f"Réponse reçue — {len(chunk)} chars | "
+                f"in: {usage.input_tokens}, out: {usage.output_tokens} | "
+                f"stop: {message.stop_reason}"
+            )
+
+            full_response += chunk
+
+            if message.stop_reason != "max_tokens":
+                break
+
+            typer.echo(
+                f"\n   ⚠️  Limite de tokens atteinte "
+                f"({usage.output_tokens} tokens, {len(full_response)} chars générés au total)"
+            )
+            if not typer.confirm("   Continuer la génération ?", default=True):
+                break
+
+            messages.append({"role": "assistant", "content": chunk})
+            messages.append({
+                "role": "user",
+                "content": "Continue exactement là où tu t'es arrêté, sans rien répéter de ce qui a déjà été généré."
+            })
+
+        return full_response
+
     def run(self, context: dict) -> dict:
         """Méthode principale — chaque agent DOIT la redéfinir."""
         raise NotImplementedError(f"L'agent {self.name} doit implémenter run()")
