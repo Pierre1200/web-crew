@@ -29,7 +29,7 @@ Réponds UNIQUEMENT en JSON valide, sans texte avant ou après, sans balises mar
 
 Agents disponibles — tu décides lesquels inclure et dans quel ordre selon le projet :
 - copywriter : rédige tous les textes du site à partir des sections définies dans le brief
-- designer   : génère le CSS, l'HTML (basé sur le CSS) et le JS du site
+- designer   : génère le CSS, l'HTML et le JS du site en une seule requête cohérente
 - seo        : génère title, meta description, Open Graph, Schema.org, robots.txt, sitemap.xml
 
 Règles de décision :
@@ -47,11 +47,25 @@ Le JSON doit avoir cette structure exacte :
     }
   ],
   "style_guide": {
-    "ambiance": "...",
-    "couleurs": [],
-    "typographie": "..."
+    "ambiance": "description courte de l'ambiance visuelle",
+    "couleurs": {
+      "primaire": "#xxxxxx",
+      "secondaire": "#xxxxxx",
+      "accent": "#xxxxxx",
+      "texte": "#xxxxxx",
+      "fond": "#xxxxxx"
+    },
+    "fonts": {
+      "heading": "Nom exact d'une Google Font pour les titres (ex: Playfair Display, Cormorant Garamond, Raleway)",
+      "body": "Nom exact d'une Google Font pour le corps (ex: Lato, Inter, Source Sans 3)"
+    }
   }
-}"""
+}
+
+Règles pour le style_guide :
+- couleurs : choisir des hex cohérents avec l'ambiance du brief, contrastes WCAG AA respectés
+- fonts.heading : police avec personnalité (serif, display ou sans-serif distinctif selon l'ambiance)
+- fonts.body : police lisible, poids variés disponibles sur Google Fonts"""
 
         user_message = f"""Voici le brief client (en langage naturel) :
 {brief_text}

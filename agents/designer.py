@@ -48,11 +48,49 @@ class DesignerAgent(BaseAgent):
 
         return html, css, js
 
+    def _build_fonts_link(self, fonts: dict) -> str:
+        """Construit le <link> Google Fonts depuis les noms de polices."""
+        heading = fonts.get("heading", "")
+        body    = fonts.get("body", "")
+        if not heading and not body:
+            return ""
+        # Encode les noms pour l'URL (espaces → +)
+        parts = []
+        if heading:
+            slug = heading.replace(" ", "+")
+            parts.append(f"family={slug}:ital,wght@0,400;0,600;0,700;1,400")
+        if body:
+            slug = body.replace(" ", "+")
+            parts.append(f"family={slug}:wght@300;400;600")
+        query = "&".join(parts) + "&display=swap"
+        return (
+            '    <link rel="preconnect" href="https://fonts.googleapis.com">\n'
+            '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
+            f'    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?{query}">'
+        )
+
     def _generate_site(self, plan: dict, textes: dict) -> tuple[str, str, str]:
         """Génère HTML + CSS + JS en une seule requête pour garantir la cohérence."""
         style_guide  = plan["style_guide"]
         sections     = list(textes.keys())
         sections_str = ", ".join(["nav"] + sections + ["footer"])
+
+        fonts        = style_guide.get("fonts", {})
+        font_heading = fonts.get("heading", "")
+        font_body    = fonts.get("body", "")
+        fonts_link   = self._build_fonts_link(fonts)
+
+        fonts_html_note = (
+            f"\nOBLIGATOIRE dans le <head> (avant style.css) :\n{fonts_link}"
+            if fonts_link else ""
+        )
+        fonts_css_note = ""
+        if font_heading or font_body:
+            fonts_css_note = f"\nPolices à utiliser dans les variables :root :"
+            if font_heading:
+                fonts_css_note += f'\n- --font-heading: "{font_heading}", serif;'
+            if font_body:
+                fonts_css_note += f'\n- --font-body: "{font_body}", sans-serif;'
 
         form_sections = [s for s in sections if any(kw in s.lower() for kw in _FORM_KEYWORDS)]
         form_info = (
@@ -86,26 +124,35 @@ Sections ({sections_str}) avec leurs textes :
 
 RÈGLES HTML :
 - De <!DOCTYPE html> à </html>, complet, sans omission ni troncature
+- lang="fr" sur la balise <html>
+- <meta name="viewport" content="width=device-width, initial-scale=1.0"> dans le <head>
+- <meta charset="UTF-8"> dans le <head>{fonts_html_note}
 - <link rel="stylesheet" href="style.css"> dans le <head>
 - <script src="main.js"></script> juste avant </body>
 - Pas de <style> ni de CSS inline
 - Classes BEM cohérentes avec le CSS généré
+- Les <img> sans src réel : utiliser src="" et classe img-placeholder
 
-RÈGLES CSS :
-- Variables CSS dans :root (couleurs, fontes)
+RÈGLES CSS :{fonts_css_note}
+- Variables CSS dans :root (--color-primaire, --color-fond, --color-texte, --color-accent, --color-secondaire, --font-heading, --font-body)
 - Reset CSS minimal en début
 - Mobile-first, breakpoints 768px et 1200px
-- Navigation sticky transparente → colorée au scroll (classe .scrolled)
-- Hero plein écran avec overlay sombre
+- Navigation sticky transparente → colorée (.scrolled) au scroll, hauteur 70px
+- Hero plein écran (min-height: 100vh) avec image de fond simulée (gradient sombre), overlay, texte centré
 - Grilles : 1 col mobile / 2 col tablette / 3 col desktop
-- Animations fade-in avec classe .visible
-- Sections alternées, footer sobre
+- Échelle typographique : h1 clamp(2.5rem, 6vw, 5rem), h2 clamp(1.8rem, 4vw, 3rem), h3 clamp(1.2rem, 2.5vw, 1.8rem)
+- Boutons : .btn (base), .btn--primary (couleur primaire), .btn--secondary (contour) — padding 0.8rem 2rem, border-radius 4px, transition
+- Cartes : .card avec box-shadow subtil, border-radius 8px, overflow hidden
+- img et .img-placeholder : display block, width 100%, aspect-ratio 4/3, object-fit cover; .img-placeholder avec background gradient gris élégant
+- Animations fade-in avec classe .visible (opacity + translateY)
+- Sections alternées (fond clair / fond légèrement teinté)
+- Footer sobre avec padding généreux
 
 RÈGLES JS (vanilla, aucune librairie) :
-- IntersectionObserver → ajoute classe .visible au scroll
+- IntersectionObserver → ajoute classe .visible au scroll (threshold 0.15)
 - Nav sticky : classe .scrolled après 80px de scroll
 - Smooth scroll sur liens d'ancre
-- Menu burger mobile (toggle classe .open){form_info}"""
+- Menu burger mobile (toggle classe .open sur nav){form_info}"""
 
         typer.echo("   → Génération HTML + CSS + JS en une seule requête...")
         response = self.call_claude_continuable(system_prompt, user_message, max_tokens=8192)
@@ -201,8 +248,13 @@ Réponds sans balise markdown, juste les règles CSS."""
             noms_classes.append(p[debut:fin])
 
         plan = self.read_json("temp/plan.json")
-        couleurs = plan.get("style_guide", {}).get("couleurs", [])
-        couleurs_str = ", ".join(couleurs) if couleurs else "les couleurs définies dans le projet"
+        couleurs = plan.get("style_guide", {}).get("couleurs", {})
+        if isinstance(couleurs, dict):
+            couleurs_str = ", ".join(f"{k}: {v}" for k, v in couleurs.items())
+        elif isinstance(couleurs, list):
+            couleurs_str = ", ".join(couleurs)
+        else:
+            couleurs_str = "les couleurs définies dans le projet"
 
         user_message = f"""CSS existant (ne pas réécrire) :
 {css}

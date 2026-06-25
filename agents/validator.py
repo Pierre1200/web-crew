@@ -78,6 +78,28 @@ class ValidatorAgent(BaseAgent):
                 f"❌ JS possiblement tronqué : {ouvrantes} '{{' mais {fermantes} '}}'"
             )
 
+    def check_viewport(self, html: str):
+        """Vérifie la présence de la meta viewport — critique pour le responsive."""
+        if html and '<meta name="viewport"' not in html:
+            self.problemes.append('❌ Meta viewport manquante — site non responsive sur mobile')
+
+    def check_h1(self, html: str):
+        """Vérifie la présence d'au moins un <h1> pour le SEO."""
+        if html and '<h1' not in html.lower():
+            self.problemes.append('⚠️  Aucun <h1> trouvé — structure SEO incorrecte')
+
+    def check_web_fonts(self, html: str):
+        """Vérifie qu'une police web est chargée (Google Fonts ou @import CSS)."""
+        if not html:
+            return
+        css = self._lire("style.css")
+        has_gfonts = 'fonts.googleapis.com' in html
+        has_import = css and '@import' in css and 'font' in css.lower()
+        if not has_gfonts and not has_import:
+            self.problemes.append(
+                '⚠️  Aucune police web chargée — le site utilisera les polices système'
+            )
+
     def run(self, context: dict) -> dict:
         typer.echo("✅ Validateur : inspection du site...")
         self.problemes = []
@@ -94,6 +116,9 @@ class ValidatorAgent(BaseAgent):
         js = self._lire("main.js")
 
         self.check_html_complet(html, sections_keywords)
+        self.check_viewport(html)
+        self.check_h1(html)
+        self.check_web_fonts(html)
         self.check_classes_coherentes(html, css)
         self.check_liens_fichiers(html)
         self.check_js_complet(js)
