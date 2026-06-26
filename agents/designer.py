@@ -42,6 +42,17 @@ class DesignerAgent(BaseAgent):
         css  = extract(response, _SEP_CSS,  _SEP_JS)
         js   = extract(response, _SEP_JS)
 
+        # Avertir explicitement si un séparateur est absent — évite les fichiers vides silencieux
+        if not html:
+            self.logger.error(f"Séparateur {_SEP_HTML} absent de la réponse — HTML vide")
+            typer.echo(f"   ❌ Séparateur {_SEP_HTML} introuvable dans la réponse du modèle")
+        if not css:
+            self.logger.error(f"Séparateur {_SEP_CSS} absent de la réponse — CSS vide")
+            typer.echo(f"   ❌ Séparateur {_SEP_CSS} introuvable — CSS vide")
+        if not js:
+            self.logger.error(f"Séparateur {_SEP_JS} absent de la réponse — JS vide")
+            typer.echo(f"   ❌ Séparateur {_SEP_JS} introuvable — JS vide")
+
         html = strip_markdown_fences(html) if html else ""
         css  = strip_markdown_fences(css)  if css  else ""
         js   = strip_markdown_fences(js)   if js   else ""
@@ -86,11 +97,11 @@ class DesignerAgent(BaseAgent):
         )
         fonts_css_note = ""
         if font_heading or font_body:
-            fonts_css_note = f"\nPolices à utiliser dans les variables :root :"
+            fonts_css_note = "\nPolices à utiliser dans les variables :root (choisis le fallback générique adapté) :"
             if font_heading:
-                fonts_css_note += f'\n- --font-heading: "{font_heading}", serif;'
+                fonts_css_note += f'\n- --font-heading: "{font_heading}", <fallback-adapté>;'
             if font_body:
-                fonts_css_note += f'\n- --font-body: "{font_body}", sans-serif;'
+                fonts_css_note += f'\n- --font-body: "{font_body}", <fallback-adapté>;'
 
         form_sections = [s for s in sections if any(kw in s.lower() for kw in _FORM_KEYWORDS)]
         form_info = (
@@ -131,7 +142,7 @@ RÈGLES HTML :
 - <script src="main.js"></script> juste avant </body>
 - Pas de <style> ni de CSS inline
 - Classes BEM cohérentes avec le CSS généré
-- Les <img> sans src réel : utiliser src="" et classe img-placeholder
+- Les <img> : utiliser src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" (ex: pour alt="Vue de Paris by night" → src="https://picsum.photos/seed/paris/800/450") et classe img-placeholder. Choisis un mot-clé court (1-2 mots, minuscules, sans accent, tirets autorisés) tiré du contexte de l'image. Largeur/hauteur adaptées au ratio voulu (4/3 → 800/600, 16/9 → 800/450).
 
 RÈGLES CSS :{fonts_css_note}
 - Variables CSS dans :root (--color-primaire, --color-fond, --color-texte, --color-accent, --color-secondaire, --font-heading, --font-body)
@@ -197,6 +208,18 @@ RÈGLES JS (vanilla, aucune librairie) :
         sections_str = ", ".join(["nav"] + sections + ["footer"])
         classes_str  = ", ".join(extract_css_classes(css))
 
+        # Récupérer les fonts du plan pour les réinjecter
+        try:
+            plan  = self.read_json("temp/plan.json")
+            fonts = plan.get("style_guide", {}).get("fonts", {})
+        except Exception:
+            fonts = {}
+        fonts_link = self._build_fonts_link(fonts)
+        fonts_note = (
+            f"\nOBLIGATOIRE dans le <head> (avant style.css) :\n{fonts_link}"
+            if fonts_link else ""
+        )
+
         system_prompt = """\
 Tu es un développeur web senior.
 Tu génères UNIQUEMENT la structure HTML5 complète.
@@ -207,9 +230,13 @@ Commence directement par <!DOCTYPE html> et termine obligatoirement par </body><
 Classes CSS disponibles — utilise UNIQUEMENT celles-ci, n'en invente aucune :
 {classes_str}
 
-OBLIGATOIRE : <link rel="stylesheet" href="style.css"> dans le <head>
+OBLIGATOIRE dans le <head> :
+- <meta charset="UTF-8">
+- <meta name="viewport" content="width=device-width, initial-scale=1.0">{fonts_note}
+- <link rel="stylesheet" href="style.css">
 OBLIGATOIRE : <script src="main.js"></script> avant </body>
 INTERDIT : balise <style>, CSS inline
+Images : src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" avec un mot-clé tiré du contexte de l'image (minuscules, sans accent, tirets autorisés).
 
 Sections dans le <body> : {sections_str}
 

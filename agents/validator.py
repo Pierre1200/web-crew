@@ -88,13 +88,12 @@ class ValidatorAgent(BaseAgent):
         if html and '<h1' not in html.lower():
             self.problemes.append('⚠️  Aucun <h1> trouvé — structure SEO incorrecte')
 
-    def check_web_fonts(self, html: str):
+    def check_web_fonts(self, html: str, css: str):
         """Vérifie qu'une police web est chargée (Google Fonts ou @import CSS)."""
         if not html:
             return
-        css = self._lire("style.css")
         has_gfonts = 'fonts.googleapis.com' in html
-        has_import = css and '@import' in css and 'font' in css.lower()
+        has_import = bool(css) and '@import' in css and 'font' in css.lower()
         if not has_gfonts and not has_import:
             self.problemes.append(
                 '⚠️  Aucune police web chargée — le site utilisera les polices système'
@@ -118,7 +117,7 @@ class ValidatorAgent(BaseAgent):
         self.check_html_complet(html, sections_keywords)
         self.check_viewport(html)
         self.check_h1(html)
-        self.check_web_fonts(html)
+        self.check_web_fonts(html, css)
         self.check_classes_coherentes(html, css)
         self.check_liens_fichiers(html)
         self.check_js_complet(js)
