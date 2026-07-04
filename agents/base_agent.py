@@ -60,12 +60,17 @@ class BaseAgent:
         logger.addHandler(handler)
         return logger
 
-    def _extraire_texte(self, message) -> str:
+    def _extraire_texte(self, message, allow_empty: bool = False) -> str:
         """Extrait le texte d'une réponse Claude de façon défensive.
 
         Gère les refus (stop_reason == 'refusal') et ne suppose pas que le
         premier bloc est du texte — évite l'IndexError si content est vide ou
         commence par un bloc non-texte.
+
+        `allow_empty=True` tolère une réponse sans bloc texte : utile en
+        poursuite quand le budget de tokens a été entièrement consommé par le
+        raisonnement (stop_reason == 'max_tokens') avant tout texte — la boucle
+        appelante relancera la génération au lieu d'échouer.
         """
         if message.stop_reason == "refusal":
             raise RuntimeError(
@@ -76,6 +81,8 @@ class BaseAgent:
             if getattr(b, "type", None) == "text"
         ]
         if not parts:
+            if allow_empty:
+                return ""
             raise RuntimeError(
                 f"Réponse sans texte exploitable (agent {self.name}, "
                 f"stop_reason={message.stop_reason})"
@@ -153,7 +160,9 @@ class BaseAgent:
                 **self._kwargs_thinking(),
             )
 
-            chunk = self._extraire_texte(message)
+            chunk = self._extraire_texte(
+                message, allow_empty=(message.stop_reason == "max_tokens")
+            )
             usage = message.usage
             self.logger.info(
                 f"Réponse reçue — {len(chunk)} chars | "
