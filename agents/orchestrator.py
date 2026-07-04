@@ -15,6 +15,42 @@ class OrchestratorAgent(BaseAgent):
             project=project
         )
 
+    def _lire_contexte_ingestion(self) -> str:
+        """Relit temp/context.json produit par l'agent Ingestion, s'il existe.
+
+        Retourne un bloc prêt à injecter dans le prompt (résumé, thèmes couverts,
+        manques) — ou une chaîne vide si l'ingestion n'a rien produit. Ainsi
+        l'orchestrateur fonctionne à l'identique quand data/ est absent.
+        """
+        context_path = self.project.temp_dir / "context.json"
+        if not context_path.exists():
+            return ""
+
+        try:
+            ctx = self.read_json("temp/context.json")
+        except (ValueError, OSError) as e:
+            self.logger.warning(f"context.json illisible, ignoré : {e}")
+            return ""
+
+        if not ctx or ctx.get("vide"):
+            return ""
+
+        digest = {
+            "resume": ctx.get("resume", ""),
+            "themes_couverts": list(ctx.get("contenu_par_theme", {}).keys()),
+            "manques": ctx.get("manques", []),
+        }
+        self.logger.info(
+            f"Contexte d'ingestion injecté — {len(digest['themes_couverts'])} thème(s), "
+            f"{len(digest['manques'])} manque(s)"
+        )
+        return (
+            "\nDonnées client déjà digérées par l'agent Ingestion "
+            "(à utiliser pour calibrer le plan, PAS pour inventer) :\n"
+            + json.dumps(digest, ensure_ascii=False, indent=2)
+            + "\n"
+        )
+
     def run(self, context: dict) -> dict:
         """Lit le brief et produit un plan de travail pour les autres agents."""
 
@@ -22,9 +58,13 @@ class OrchestratorAgent(BaseAgent):
 
         brief_text = self.read_text("brief.md")
         config = self.read_json("config.json")
+        contexte_client = self._lire_contexte_ingestion()
 
         system_prompt = """Tu es un chef de projet web expert.
 Tu reçois un brief client et tu produis un plan de travail structuré.
+Un agent d'ingestion a parfois déjà digéré les données réelles du client
+(textes fournis, thèmes disponibles, manques) : sers-t'en pour calibrer les
+instructions des agents et le style_guide, sans jamais inventer de contenu absent.
 Réponds UNIQUEMENT en JSON valide, sans texte avant ou après, sans balises markdown, sans ```json.
 
 Agents disponibles — tu décides lesquels inclure et dans quel ordre selon le projet :
@@ -72,7 +112,7 @@ Règles pour le style_guide :
 
 Voici la configuration technique du projet :
 {json.dumps(config, ensure_ascii=False, indent=2)}
-
+{contexte_client}
 Décide quels agents lancer et produis le plan de travail."""
 
         self.logger.info("Génération du plan de travail...")

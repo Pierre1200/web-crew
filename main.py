@@ -2,6 +2,7 @@ import typer
 from dotenv import load_dotenv
 from utils.project import Project
 from agents.orchestrator import OrchestratorAgent
+from agents.ingestion import IngestionAgent
 from agents.copywriter import CopywriterAgent
 from agents.designer import DesignerAgent
 from agents.seo import SeoAgent
@@ -17,6 +18,16 @@ AGENT_REGISTRY = {
 }
 
 app = typer.Typer()
+
+
+def _run_ingestion(proj: Project) -> dict:
+    """Digère les données brutes de data/ AVANT l'orchestration.
+
+    Écrit temp/context.json, que l'orchestrateur relit pour ancrer son plan
+    dans le contenu réel du client (thèmes disponibles, manques). Si data/ est
+    vide, l'agent renvoie {"vide": True} et le pipeline continue normalement.
+    """
+    return IngestionAgent(proj).run({})
 
 
 def _run_pipeline(proj: Project, plan: dict) -> dict:
@@ -49,6 +60,8 @@ def generate(
     proj.setup_dirs()
     typer.echo(f"\n🚀 Lancement de web-crew pour : {proj.name}\n")
 
+    _run_ingestion(proj)
+
     orchestrator = OrchestratorAgent(proj)
     plan = orchestrator.run({})
     typer.echo(f"📋 {len(plan['taches'])} agent(s) planifié(s) : {[t['agent'] for t in plan['taches']]}\n")
@@ -69,6 +82,8 @@ def generate_safe(
     proj = Project(project_name)
     proj.setup_dirs()
     typer.echo(f"\n🚀 Génération sécurisée pour : {proj.name}\n")
+
+    _run_ingestion(proj)
 
     orchestrator = OrchestratorAgent(proj)
     plan = orchestrator.run({})
@@ -167,6 +182,15 @@ def list_agents():
     for name in AGENT_REGISTRY:
         typer.echo(f"  • {name}")
 
+@app.command()
+def ingest(project: str = typer.Option(..., "--project", "-p")):
+    """Lance l'agent Ingestion sur les données du projet."""
+    from agents.ingestion import IngestionAgent
+    from utils.project import Project
+    proj = Project(project)
+    proj.setup_dirs()
+    agent = IngestionAgent(proj)
+    agent.run({})
 
 if __name__ == "__main__":
     app()

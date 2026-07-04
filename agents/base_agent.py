@@ -20,6 +20,11 @@ class BaseAgent:
         logger = logging.getLogger(f"{self.project.name}.{self.name}")
         logger.setLevel(logging.INFO)
 
+        # logging.getLogger renvoie un singleton par nom : sans cette garde, on
+        # ajoute un handler à chaque instanciation → lignes de log dupliquées.
+        if logger.handlers:
+            return logger
+
         self.project.logs_dir.mkdir(parents=True, exist_ok=True)
         log_file = self.project.logs_dir / f"{self.name}.log"
         handler = logging.FileHandler(log_file)
@@ -28,6 +33,28 @@ class BaseAgent:
         ))
         logger.addHandler(handler)
         return logger
+
+    def _extraire_texte(self, message) -> str:
+        """Extrait le texte d'une réponse Claude de façon défensive.
+
+        Gère les refus (stop_reason == 'refusal') et ne suppose pas que le
+        premier bloc est du texte — évite l'IndexError si content est vide ou
+        commence par un bloc non-texte.
+        """
+        if message.stop_reason == "refusal":
+            raise RuntimeError(
+                f"Génération refusée par le modèle (agent {self.name})"
+            )
+        parts = [
+            b.text for b in message.content
+            if getattr(b, "type", None) == "text"
+        ]
+        if not parts:
+            raise RuntimeError(
+                f"Réponse sans texte exploitable (agent {self.name}, "
+                f"stop_reason={message.stop_reason})"
+            )
+        return "".join(parts)
 
     def read_json(self, filepath: str) -> dict:
         """Lit un fichier JSON relatif à la racine du projet."""
@@ -61,7 +88,7 @@ class BaseAgent:
             ]
         )
 
-        response = message.content[0].text
+        response = self._extraire_texte(message)
         usage = message.usage
         self.logger.info(
             f"Réponse reçue — {len(response)} caractères | "
@@ -69,8 +96,20 @@ class BaseAgent:
         )
         return response
 
-    def call_claude_continuable(self, system_prompt: str, user_message: str, max_tokens: int = 8192) -> str:
-        """Appelle Claude et propose de continuer si la limite de tokens est atteinte."""
+    def call_claude_continuable(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int = 8192,
+        auto_continue: bool = False,
+    ) -> str:
+        """Appelle Claude et poursuit si la limite de tokens est atteinte.
+
+        Poursuite automatique si `auto_continue=True` OU si l'entrée standard
+        n'est pas un terminal (run CI/cron) — sinon on demande confirmation.
+        Évite de figer le pipeline dans un contexte non-interactif.
+        """
+        import sys
         import typer
 
         messages = [{"role": "user", "content": user_message}]
@@ -86,7 +125,7 @@ class BaseAgent:
                 messages=messages,
             )
 
-            chunk = message.content[0].text
+            chunk = self._extraire_texte(message)
             usage = message.usage
             self.logger.info(
                 f"Réponse reçue — {len(chunk)} chars | "
@@ -103,7 +142,9 @@ class BaseAgent:
                 f"\n   ⚠️  Limite de tokens atteinte "
                 f"({usage.output_tokens} tokens, {len(full_response)} chars générés au total)"
             )
-            if not typer.confirm("   Continuer la génération ?", default=True):
+            if auto_continue or not sys.stdin.isatty():
+                typer.echo("   → Poursuite automatique de la génération...")
+            elif not typer.confirm("   Continuer la génération ?", default=True):
                 break
 
             messages.append({"role": "assistant", "content": chunk})

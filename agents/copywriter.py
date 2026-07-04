@@ -16,11 +16,34 @@ class CopywriterAgent(BaseAgent):
             project=project
         )
 
+    def _lire_contenu_ingestion(self) -> dict:
+        """Relit temp/context.json produit par l'agent Ingestion, s'il existe.
+
+        Retourne {"contenu_par_theme": {...}, "manques": [...]} ou {} si
+        l'ingestion n'a rien produit. Permet au copywriter de s'appuyer sur le
+        contenu réel du client au lieu d'inventer.
+        """
+        context_path = self.project.temp_dir / "context.json"
+        if not context_path.exists():
+            return {}
+        try:
+            ctx = self.read_json("temp/context.json")
+        except (ValueError, OSError) as e:
+            self.logger.warning(f"context.json illisible, ignoré : {e}")
+            return {}
+        if not ctx or ctx.get("vide"):
+            return {}
+        return {
+            "contenu_par_theme": ctx.get("contenu_par_theme", {}),
+            "manques": ctx.get("manques", []),
+        }
+
     def run(self, context: dict) -> dict:
         typer.echo("✍️  Copywriter : rédaction des textes...")
 
         plan = self.read_json("temp/plan.json")
         config = self.read_json("config.json")
+        ingestion = self._lire_contenu_ingestion()
 
         instruction = next(
             t["instruction"] for t in plan["taches"]
@@ -31,8 +54,29 @@ class CopywriterAgent(BaseAgent):
         sections = config["site"]["sections"]
         sections_str = "\n".join(f"  - {s}" for s in sections)
 
+        # Bloc de contenu réel + consigne anti-invention, seulement s'il y a du digéré
+        contenu_note = ""
+        if ingestion.get("contenu_par_theme"):
+            self.logger.info(
+                f"Contenu client injecté — {len(ingestion['contenu_par_theme'])} thème(s)"
+            )
+            contenu_note = f"""
+
+CONTENU RÉEL FOURNI PAR LE CLIENT (digéré par l'agent Ingestion), par thème :
+{json.dumps(ingestion['contenu_par_theme'], ensure_ascii=False, indent=2)}
+
+Éléments manquants signalés (ne les invente PAS — reste vague ou omets) :
+{json.dumps(ingestion.get('manques', []), ensure_ascii=False, indent=2)}
+
+RÈGLE ABSOLUE : appuie-toi sur ce contenu réel. N'invente jamais de faits
+factuels (adresses, horaires, noms d'artistes, dates, tarifs). Reformule et
+mets en valeur ce qui est fourni ; pour ce qui manque, écris un texte générique
+sans inventer d'information précise."""
+
         system_prompt = """Tu es un rédacteur web expert.
 Tu rédiges des textes professionnels adaptés au secteur et au ton définis dans le brief.
+Tu t'appuies sur le contenu réel fourni par le client quand il est disponible,
+sans jamais inventer de faits factuels absents.
 Réponds UNIQUEMENT en JSON valide, sans balises markdown, sans ```json.
 Les textes doivent être immédiatement utilisables sur le site, en français."""
 
@@ -44,6 +88,7 @@ Style guide à respecter :
 
 Voici les sections du site à rédiger :
 {sections_str}
+{contenu_note}
 
 Génère un JSON avec une clé par section (snake_case, ex: "a_propos", "prestations").
 Pour chaque section, génère les sous-champs texte adaptés à son type :
