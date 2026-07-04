@@ -6,7 +6,10 @@ __pycache__
 workspace/
 logs/
 
-# Artefacts générés par projet (logs, fichiers temp, site produit)
-projects/*/logs/
-projects/*/temp/
-projects/*/output/
+# Notes de travail personnelles — non publiées
+CONTEXT.md
+
+# Projets clients — données privées, exclus du dépôt public
+# (briefs, configs, données brutes, sites générés, logs, fichiers temp)
+projects/*
+!projects/.gitkeep
