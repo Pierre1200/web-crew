@@ -53,7 +53,7 @@ def _run_pipeline(proj: Project, plan: dict) -> dict:
 
 @app.command()
 def generate(
-    project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet (ex: projet-exemple)")
+    project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet (ex: mon-client)")
 ):
     """Lance le pipeline piloté par l'orchestrateur."""
     proj = Project(project_name)
