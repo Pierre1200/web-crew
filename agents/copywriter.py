@@ -1,9 +1,8 @@
 from __future__ import annotations
-import json
 import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
-from utils.cleaners import parse_json_safe
+from utils.cleaners import parse_json_safe, compact_json
 
 
 class CopywriterAgent(BaseAgent):
@@ -42,7 +41,7 @@ class CopywriterAgent(BaseAgent):
         typer.echo("✍️  Copywriter : rédaction des textes...")
 
         plan = self.read_json("temp/plan.json")
-        config = self.read_json("config.json")
+        config = self.load_config()
         ingestion = self._lire_contenu_ingestion()
 
         instruction = next(
@@ -63,10 +62,10 @@ class CopywriterAgent(BaseAgent):
             contenu_note = f"""
 
 CONTENU RÉEL FOURNI PAR LE CLIENT (digéré par l'agent Ingestion), par thème :
-{json.dumps(ingestion['contenu_par_theme'], ensure_ascii=False, indent=2)}
+{compact_json(ingestion['contenu_par_theme'])}
 
 Éléments manquants signalés (ne les invente PAS — reste vague ou omets) :
-{json.dumps(ingestion.get('manques', []), ensure_ascii=False, indent=2)}
+{compact_json(ingestion.get('manques', []))}
 
 RÈGLE ABSOLUE : appuie-toi sur ce contenu réel. N'invente jamais de faits
 factuels (adresses, horaires, noms d'artistes, dates, tarifs). Reformule et
@@ -84,7 +83,7 @@ Les textes doivent être immédiatement utilisables sur le site, en français.""
 {instruction}
 
 Style guide à respecter :
-{json.dumps(style_guide, ensure_ascii=False, indent=2)}
+{compact_json(style_guide)}
 
 Voici les sections du site à rédiger :
 {sections_str}

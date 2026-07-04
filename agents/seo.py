@@ -4,11 +4,15 @@ import re
 import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
-from utils.cleaners import parse_json_safe
+from utils.cleaners import parse_json_safe, compact_json
 
 
 class SeoAgent(BaseAgent):
     """Génère les métadonnées SEO et les injecte dans le HTML. Agent hybride."""
+
+    # Tâche mécanique (métadonnées à schéma fixe) : Haiku 4.5, sans raisonnement.
+    MODEL = "claude-haiku-4-5"
+    THINKING = None
 
     def __init__(self, project: Project):
         super().__init__(
@@ -29,13 +33,13 @@ Tu génères des métadonnées pour un site vitrine, optimisées pour le référ
 Réponds UNIQUEMENT en JSON valide, sans balise markdown."""
 
         user_message = f"""Voici les infos du client :
-{json.dumps(client, ensure_ascii=False, indent=2)}
+{compact_json(client)}
 
 Voici la config SEO :
-{json.dumps(seo_config, ensure_ascii=False, indent=2)}
+{compact_json(seo_config)}
 
 Voici les textes du site :
-{json.dumps(textes, ensure_ascii=False, indent=2)}
+{compact_json(textes)}
 
 Produis un JSON avec cette structure exacte :
 {{
@@ -126,7 +130,7 @@ Sitemap: sitemap.xml
     def run(self, context: dict) -> dict:
         typer.echo("🔍 SEO : optimisation du site...")
 
-        config = self.read_json("config.json")
+        config = self.load_config()
         textes = self.read_json("temp/textes.json")
 
         meta = self._generer_metadonnees(config, textes)

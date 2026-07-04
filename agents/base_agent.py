@@ -8,12 +8,38 @@ from utils.project import Project
 class BaseAgent:
     """Classe mère dont héritent tous les agents."""
 
+    # Modèle unique pour toute l'équipe — surchargeable via WEBCREW_MODEL
+    # (ou par un agent qui redéfinit l'attribut). Évite la duplication du
+    # nom de modèle dispersée dans chaque appel API.
+    MODEL = os.getenv("WEBCREW_MODEL", "claude-sonnet-4-6")
+
+    # Raisonnement adaptatif par défaut. Un agent le désactive avec THINKING = None
+    # (tâches mécaniques : ingestion/orchestrateur/SEO), ce qui économise des tokens
+    # de sortie ET est obligatoire sur Haiku 4.5 (qui ne supporte pas l'adaptatif).
+    THINKING = {"type": "adaptive"}
+
     def __init__(self, name: str, role: str, project: Project):
         self.name = name
         self.role = role
         self.project = project
-        self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY absente — renseigne-la dans .env "
+                "ou dans l'environnement avant de lancer un agent."
+            )
+        self.client = anthropic.Anthropic(api_key=api_key)
         self.logger = self._setup_logger()
+
+    def load_config(self) -> dict:
+        """Charge le config.json du projet. Point d'accès unique à la config."""
+        return self.project.load_config()
+
+    def _kwargs_thinking(self) -> dict:
+        """Renvoie {'thinking': ...} si l'agent l'active, sinon {} — pour ne pas
+        envoyer le paramètre aux modèles qui ne le supportent pas (Haiku 4.5)."""
+        return {"thinking": self.THINKING} if self.THINKING else {}
 
     def _setup_logger(self):
         """Configure les logs de l'agent dans le dossier du projet."""
@@ -80,12 +106,13 @@ class BaseAgent:
         self.logger.info(f"Appel API Claude — {len(user_message)} caractères")
 
         message = self.client.messages.create(
-            model="claude-sonnet-4-6",
+            model=self.MODEL,
             max_tokens=max_tokens,
             system=system_prompt,
             messages=[
                 {"role": "user", "content": user_message}
-            ]
+            ],
+            **self._kwargs_thinking(),
         )
 
         response = self._extraire_texte(message)
@@ -119,10 +146,11 @@ class BaseAgent:
             self.logger.info(f"Appel API Claude — {len(messages[-1]['content'])} chars (dernier msg)")
 
             message = self.client.messages.create(
-                model="claude-sonnet-4-6",
+                model=self.MODEL,
                 max_tokens=max_tokens,
                 system=system_prompt,
                 messages=messages,
+                **self._kwargs_thinking(),
             )
 
             chunk = self._extraire_texte(message)
@@ -147,7 +175,10 @@ class BaseAgent:
             elif not typer.confirm("   Continuer la génération ?", default=True):
                 break
 
-            messages.append({"role": "assistant", "content": chunk})
+            # On renvoie les blocs complets (dont thinking), pas seulement le texte :
+            # avec le raisonnement activé, les blocs de pensée doivent être conservés
+            # tels quels sur le même modèle pour poursuivre la génération.
+            messages.append({"role": "assistant", "content": message.content})
             messages.append({
                 "role": "user",
                 "content": "Continue exactement là où tu t'es arrêté, sans rien répéter de ce qui a déjà été généré."

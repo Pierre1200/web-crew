@@ -4,19 +4,29 @@ Lit le dossier data/, extrait le texte de tous les formats,
 catalogue les images, puis trie/structure le tout avec l'IA.
 """
 from __future__ import annotations
-import json
 import typer
 from pathlib import Path
 from agents.base_agent import BaseAgent
 from utils.extractors import extract_text, EXTRACTORS
-from utils.cleaners import parse_json_safe
+from utils.cleaners import parse_json_safe, compact_json
 
 # Extensions d'images qu'on catalogue (sans les lire)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}
 
+# Budget de caractères injectés dans le prompt de tri (~15-20k tokens).
+# Garde-fou : sans ça, un client fournissant de gros PDF/DOCX fait exploser
+# le contexte et le coût, et peut tronquer le JSON de sortie.
+MAX_TEXTE_CHARS = 60_000
+
 
 class IngestionAgent(BaseAgent):
     """Transforme les données brutes du client en contexte structuré."""
+
+    # Agent CRITIQUE : c'est lui qui décide quel contenu client remonte au reste
+    # du pipeline (copywriter inclus). On le maintient volontairement sur un
+    # modèle performant + raisonnement adaptatif — NE PAS dégrader pour économiser.
+    MODEL = "claude-sonnet-4-6"
+    THINKING = {"type": "adaptive"}
 
     def __init__(self, project):
         super().__init__(
@@ -24,6 +34,36 @@ class IngestionAgent(BaseAgent):
             role="Ingestion — digère et structure les données client",
             project=project,
         )
+
+    # ── BORNAGE DU VOLUME (zéro token) ─────────────────────────────
+    def _borner_textes(self, textes: dict) -> dict:
+        """Plafonne le volume total de texte injecté dans le prompt IA.
+
+        Tronque document par document, dans l'ordre, jusqu'au budget. Signale
+        clairement ce qui a été coupé pour que tu saches qu'il manque du contenu.
+        """
+        total = sum(len(t) for t in textes.values())
+        if total <= MAX_TEXTE_CHARS:
+            return textes
+
+        typer.echo(
+            f"   ⚠️  {total} caractères extraits > budget {MAX_TEXTE_CHARS} "
+            f"— troncature pour tenir dans le contexte"
+        )
+        self.logger.warning(f"Textes tronqués : {total} > {MAX_TEXTE_CHARS} chars")
+
+        bornes = {}
+        restant = MAX_TEXTE_CHARS
+        for cle, contenu in textes.items():
+            if restant <= 0:
+                bornes[cle] = "[…document omis, budget de contexte atteint…]"
+            elif len(contenu) > restant:
+                bornes[cle] = contenu[:restant] + "\n[…tronqué…]"
+                restant = 0
+            else:
+                bornes[cle] = contenu
+                restant -= len(contenu)
+        return bornes
 
     # ── ÉTAPE 1 : COLLECTE (zéro token) ────────────────────────────
     def _collecter_fichiers(self) -> list[Path]:
@@ -75,13 +115,13 @@ et tu signales ce qui manque.
 Réponds UNIQUEMENT en JSON valide, sans balise markdown."""
 
         user_message = f"""Voici les sections prévues pour le site :
-{json.dumps(sections, ensure_ascii=False, indent=2)}
+{compact_json(sections)}
 
 Voici les textes bruts extraits des fichiers du client :
-{json.dumps(textes, ensure_ascii=False, indent=2)}
+{compact_json(textes)}
 
 Voici les images disponibles :
-{json.dumps(images, ensure_ascii=False, indent=2)}
+{compact_json(images)}
 
 Produis un JSON avec cette structure :
 {{
@@ -97,14 +137,18 @@ Produis un JSON avec cette structure :
   "resume": "résumé en 2-3 phrases de ce que le client a fourni"
 }}"""
 
-        response = self.call_claude(system_prompt, user_message, max_tokens=4096)
+        # Continuable + auto : le JSON de sortie doit être complet pour être
+        # parsé, et l'ingestion tourne comme pré-étape non interactive.
+        response = self.call_claude_continuable(
+            system_prompt, user_message, max_tokens=8192, auto_continue=True
+        )
         return parse_json_safe(response)
 
     # ── ÉTAPE 5 : ORCHESTRATION DES ÉTAPES ─────────────────────────
     def run(self, context: dict) -> dict:
         typer.echo("🗂  Ingestion : digestion des données client...")
 
-        config = self.project.load_config()
+        config = self.load_config()
 
         # Étape 1 : collecte
         fichiers = self._collecter_fichiers()
@@ -123,6 +167,7 @@ Produis un JSON avec cette structure :
 
         # Étape 4 : tri intelligent (IA) — seulement s'il y a du texte
         if textes:
+            textes = self._borner_textes(textes)
             contexte = self._trier_avec_ia(textes, images, config)
         else:
             contexte = {"contenu_par_theme": {}, "images_suggerees": [],

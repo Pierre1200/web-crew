@@ -6,6 +6,16 @@ import json
 import re
 
 
+def compact_json(data) -> str:
+    """Sérialise en JSON compact (sans indentation ni espaces superflus).
+
+    Pour les données injectées DANS les prompts : ~10-20 % de tokens d'entrée
+    en moins vs indent=2, sans perte pour le modèle qui parse aussi bien.
+    Ne pas utiliser pour les fichiers écrits sur disque (lisibilité humaine).
+    """
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+
+
 def strip_markdown_fences(text: str) -> str:
     """
     Enlève les balises markdown ``` que Claude ajoute parfois.

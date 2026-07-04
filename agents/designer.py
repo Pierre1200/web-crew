@@ -1,9 +1,8 @@
 from __future__ import annotations
-import json
 import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
-from utils.cleaners import clean_code_output, extract_css_classes, strip_markdown_fences
+from utils.cleaners import clean_code_output, extract_css_classes, strip_markdown_fences, compact_json
 
 _FORM_KEYWORDS = {"contact", "newsletter", "reserver", "formulaire", "rdv", "inscription"}
 
@@ -14,6 +13,11 @@ _SEP_JS   = "===JS==="
 
 class DesignerAgent(BaseAgent):
     """Génère le HTML, CSS et JS du site en une seule requête cohérente."""
+
+    # Le designer tourne sur Opus 4.8 : meilleurs instincts de design front-end
+    # (mise en page, cohérence visuelle) que le reste de l'équipe sur Sonnet 4.6.
+    # Une seule requête par site → surcoût négligeable.
+    MODEL = "claude-opus-4-8"
 
     def __init__(self, project: Project):
         super().__init__(
@@ -128,10 +132,10 @@ le code sans rien résumer."""
         user_message = f"""Génère les 3 fichiers d'un site vitrine professionnel.
 
 Style guide :
-{json.dumps(style_guide, ensure_ascii=False, indent=2)}
+{compact_json(style_guide)}
 
 Sections ({sections_str}) avec leurs textes :
-{json.dumps(textes, ensure_ascii=False, indent=2)}
+{compact_json(textes)}
 
 RÈGLES HTML :
 - De <!DOCTYPE html> à </html>, complet, sans omission ni troncature
@@ -241,7 +245,7 @@ Images : src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" a
 Sections dans le <body> : {sections_str}
 
 Textes à intégrer :
-{json.dumps(textes, ensure_ascii=False, indent=2)}"""
+{compact_json(textes)}"""
 
         html = clean_code_output(
             self.call_claude_continuable(system_prompt, user_message, max_tokens=8192)

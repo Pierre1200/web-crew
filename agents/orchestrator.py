@@ -1,12 +1,17 @@
 from __future__ import annotations
-import json
 import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
+from utils.cleaners import compact_json
 
 
 class OrchestratorAgent(BaseAgent):
     """Chef de brigade — lit le brief et coordonne les agents."""
+
+    # Tâche mécanique (produire un plan JSON à schéma fixe) : Haiku 4.5, sans
+    # raisonnement. Qualité inchangée, coût divisé.
+    MODEL = "claude-haiku-4-5"
+    THINKING = None
 
     def __init__(self, project: Project):
         super().__init__(
@@ -47,7 +52,7 @@ class OrchestratorAgent(BaseAgent):
         return (
             "\nDonnées client déjà digérées par l'agent Ingestion "
             "(à utiliser pour calibrer le plan, PAS pour inventer) :\n"
-            + json.dumps(digest, ensure_ascii=False, indent=2)
+            + compact_json(digest)
             + "\n"
         )
 
@@ -57,7 +62,7 @@ class OrchestratorAgent(BaseAgent):
         typer.echo("🎯 Orchestrateur : lecture du brief...")
 
         brief_text = self.read_text("brief.md")
-        config = self.read_json("config.json")
+        config = self.load_config()
         contexte_client = self._lire_contexte_ingestion()
 
         system_prompt = """Tu es un chef de projet web expert.
@@ -111,7 +116,7 @@ Règles pour le style_guide :
 {brief_text}
 
 Voici la configuration technique du projet :
-{json.dumps(config, ensure_ascii=False, indent=2)}
+{compact_json(config)}
 {contexte_client}
 Décide quels agents lancer et produis le plan de travail."""
 
