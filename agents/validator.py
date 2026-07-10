@@ -8,9 +8,26 @@ from utils.cleaners import extract_css_classes
 # Classes ajoutées dynamiquement par main.js — absentes du CSS statique, c'est normal
 _JS_DYNAMIC_CLASSES = {"visible", "scrolled", "open", "active", "loaded", "is-open", "is-active"}
 
+# Types de problèmes que la boucle de correction (generate-safe) sait réparer.
+# Tout autre type d'erreur arrête la boucle avec un message explicite, au lieu
+# de tourner à vide jusqu'à max_tentatives.
+FIXABLE_TYPES = {"html_tronque", "html_incomplet", "js_tronque", "classe_absente"}
+
 
 class ValidatorAgent(BaseAgent):
-    """Inspecte le site généré et détecte les problèmes — sans appeler l'IA."""
+    """Inspecte le site généré et détecte les problèmes — sans appeler l'IA.
+
+    Chaque problème est un dict structuré, jamais une simple phrase :
+        {"type": str, "niveau": "erreur"|"warning", "message": str, ...extras}
+
+    - "erreur"  : le site est cassé ou incomplet → invalide le run
+    - "warning" : point d'attention, le site reste livrable
+
+    Le champ "type" sert à l'aiguillage de la correction automatique.
+    Avant, main.py et designer.fix() faisaient du pattern-matching sur les
+    messages français ("tronqué" in p...) : reformuler un message cassait la
+    correction en silence. Avec un type, le contrat est explicite.
+    """
 
     def __init__(self, project: Project):
         super().__init__(
@@ -20,11 +37,18 @@ class ValidatorAgent(BaseAgent):
         )
         self.problemes = []
 
+    def _pb(self, type_: str, niveau: str, message: str, **extras):
+        """Enregistre un problème structuré (type + niveau + message + extras)."""
+        probleme = {"type": type_, "niveau": niveau, "message": message}
+        probleme.update(extras)
+        self.problemes.append(probleme)
+
     def _lire(self, fichier: str) -> str:
         """Lit un fichier du dossier de sortie du projet."""
         path = self.project.output_dir / fichier
         if not path.exists():
-            self.problemes.append(f"❌ Fichier manquant : {fichier}")
+            self._pb("fichier_manquant", "erreur",
+                     f"Fichier manquant : {fichier}", fichier=fichier)
             return ""
         return path.read_text(encoding="utf-8")
 
@@ -33,12 +57,18 @@ class ValidatorAgent(BaseAgent):
         if not html:
             return
         if "</html>" not in html:
-            self.problemes.append("❌ HTML tronqué : balise </html> manquante")
+            self._pb("html_tronque", "erreur",
+                     "HTML tronqué : balise </html> manquante")
         if "<body" not in html:
-            self.problemes.append("❌ HTML incomplet : pas de <body>")
+            self._pb("html_incomplet", "erreur",
+                     "HTML incomplet : pas de <body>")
+        # Heuristique faible (simple recherche du nom dans le HTML) → warning,
+        # pas erreur : un faux positif ne doit pas invalider le site.
         for section in (sections_keywords or []):
             if section not in html.lower():
-                self.problemes.append(f"⚠️  Section possiblement manquante : {section}")
+                self._pb("section_manquante", "warning",
+                         f"Section possiblement manquante : {section}",
+                         section=section)
 
     def check_classes_coherentes(self, html: str, css: str):
         """Pour chaque classe du HTML, vérifie qu'elle existe dans le CSS."""
@@ -52,20 +82,22 @@ class ValidatorAgent(BaseAgent):
 
         classes_css = set(extract_css_classes(css))
 
-        for classe in classes_html:
+        for classe in sorted(classes_html):
             if classe not in classes_css and classe not in _JS_DYNAMIC_CLASSES:
-                self.problemes.append(
-                    f"⚠️  Classe '{classe}' utilisée dans le HTML mais absente du CSS"
-                )
+                self._pb("classe_absente", "erreur",
+                         f"Classe '{classe}' utilisée dans le HTML mais absente du CSS",
+                         classe=classe)
 
     def check_liens_fichiers(self, html: str):
         """Vérifie que le HTML lie bien le CSS et le JS."""
         if not html:
             return
         if 'href="style.css"' not in html:
-            self.problemes.append("❌ Lien vers style.css manquant dans le HTML")
+            self._pb("lien_css_manquant", "erreur",
+                     "Lien vers style.css manquant dans le HTML")
         if 'src="main.js"' not in html:
-            self.problemes.append("❌ Lien vers main.js manquant dans le HTML")
+            self._pb("lien_js_manquant", "erreur",
+                     "Lien vers main.js manquant dans le HTML")
 
     def check_js_complet(self, js: str):
         """Détecte un JS tronqué en comptant les accolades."""
@@ -74,19 +106,30 @@ class ValidatorAgent(BaseAgent):
         ouvrantes = js.count("{")
         fermantes = js.count("}")
         if ouvrantes != fermantes:
-            self.problemes.append(
-                f"❌ JS possiblement tronqué : {ouvrantes} '{{' mais {fermantes} '}}'"
-            )
+            self._pb("js_tronque", "erreur",
+                     f"JS possiblement tronqué : {ouvrantes} '{{' mais {fermantes} '}}'")
+
+    def check_css_complet(self, css: str):
+        """Détecte un CSS tronqué en comptant les accolades (même principe que le JS)."""
+        if not css:
+            return
+        ouvrantes = css.count("{")
+        fermantes = css.count("}")
+        if ouvrantes != fermantes:
+            self._pb("css_tronque", "erreur",
+                     f"CSS possiblement tronqué : {ouvrantes} '{{' mais {fermantes} '}}'")
 
     def check_viewport(self, html: str):
         """Vérifie la présence de la meta viewport — critique pour le responsive."""
         if html and '<meta name="viewport"' not in html:
-            self.problemes.append('❌ Meta viewport manquante — site non responsive sur mobile')
+            self._pb("viewport_manquant", "erreur",
+                     "Meta viewport manquante — site non responsive sur mobile")
 
     def check_h1(self, html: str):
         """Vérifie la présence d'au moins un <h1> pour le SEO."""
         if html and '<h1' not in html.lower():
-            self.problemes.append('⚠️  Aucun <h1> trouvé — structure SEO incorrecte')
+            self._pb("h1_manquant", "warning",
+                     "Aucun <h1> trouvé — structure SEO incorrecte")
 
     def check_web_fonts(self, html: str, css: str):
         """Vérifie qu'une police web est chargée (Google Fonts ou @import CSS)."""
@@ -95,9 +138,26 @@ class ValidatorAgent(BaseAgent):
         has_gfonts = 'fonts.googleapis.com' in html
         has_import = bool(css) and '@import' in css and 'font' in css.lower()
         if not has_gfonts and not has_import:
-            self.problemes.append(
-                '⚠️  Aucune police web chargée — le site utilisera les polices système'
-            )
+            self._pb("fonts_manquantes", "warning",
+                     "Aucune police web chargée — le site utilisera les polices système")
+
+    def check_textes_complets(self):
+        """Vérifie que chaque section de textes.json contient bien du contenu.
+
+        Premier check de CONTENU (et non de structure) : une section vide
+        signifie que le copywriter a mal travaillé, même si le HTML est valide.
+        """
+        try:
+            textes = self.read_json("temp/textes.json")
+        except Exception as e:
+            self.logger.info(f"textes.json illisible — check de contenu sauté : {e}")
+            return
+        for section, contenu in textes.items():
+            vide = not contenu or (isinstance(contenu, str) and not contenu.strip())
+            if vide:
+                self._pb("section_vide", "warning",
+                         f"Section '{section}' vide dans textes.json",
+                         section=section)
 
     def run(self, context: dict) -> dict:
         typer.echo("✅ Validateur : inspection du site...")
@@ -107,8 +167,8 @@ class ValidatorAgent(BaseAgent):
         try:
             textes = self.read_json("temp/textes.json")
             sections_keywords = [k.replace("_", "-") for k in textes.keys()]
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.info(f"textes.json illisible — sections non vérifiées : {e}")
 
         html = self._lire("index.html")
         css = self._lire("style.css")
@@ -120,13 +180,30 @@ class ValidatorAgent(BaseAgent):
         self.check_web_fonts(html, css)
         self.check_classes_coherentes(html, css)
         self.check_liens_fichiers(html)
+        self.check_css_complet(css)
         self.check_js_complet(js)
+        self.check_textes_complets()
+
+        erreurs  = [p for p in self.problemes if p["niveau"] == "erreur"]
+        warnings = [p for p in self.problemes if p["niveau"] == "warning"]
 
         if not self.problemes:
             typer.echo("✅ Aucun problème détecté — le site est valide !")
         else:
-            typer.echo(f"⚠️  {len(self.problemes)} problème(s) détecté(s) :")
+            typer.echo(f"⚠️  {len(erreurs)} erreur(s), {len(warnings)} warning(s) :")
             for p in self.problemes:
-                typer.echo(f"   {p}")
+                icone = "❌" if p["niveau"] == "erreur" else "⚠️ "
+                typer.echo(f"   {icone} {p['message']}")
 
-        return {"problemes": self.problemes, "valide": len(self.problemes) == 0}
+        for p in self.problemes:
+            self.logger.info(f"[{p['niveau']}] {p['type']} — {p['message']}")
+
+        # Seules les ERREURS invalident le site : les warnings sont des points
+        # d'attention, pas des blocages (avant, tout invalidait, et la boucle
+        # de correction tournait à vide sur des problèmes incorrigeables).
+        return {
+            "valide": len(erreurs) == 0,
+            "problemes": self.problemes,
+            "erreurs": erreurs,
+            "warnings": warnings,
+        }

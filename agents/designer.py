@@ -257,11 +257,58 @@ Textes à intégrer :
         self.logger.error("HTML toujours invalide après regenerate_html")
         return False
 
-    def fix(self, problemes: list, css: str, html: str) -> str:
-        """Génère UNIQUEMENT les règles CSS manquantes signalées par le validateur."""
+    def regenerate_js(self) -> bool:
+        """Re-génère main.js depuis le HTML existant sur disque.
+
+        Le JS cible des ids et classes précis du DOM (getElementById...) :
+        on lui passe donc le HTML actuel pour qu'il vise les bons éléments.
+        """
+        html = (self.project.output_dir / "index.html").read_text(encoding="utf-8")
+
+        textes = self.read_json("temp/textes.json")
+        sections = list(textes.keys())
+        form_sections = [s for s in sections if any(kw in s.lower() for kw in _FORM_KEYWORDS)]
+        form_info = (
+            f"\n- Validation des formulaires des sections : {', '.join(form_sections)} "
+            "(champs requis, format email, message d'erreur/succès via textContent)"
+            if form_sections else ""
+        )
+
+        system_prompt = """\
+Tu es un développeur JavaScript senior.
+Tu génères UNIQUEMENT du JavaScript vanilla (aucune librairie).
+Réponds sans balise markdown, juste le code JS complet."""
+
+        user_message = f"""Génère le main.js complet pour ce site vitrine.
+
+Fonctionnalités requises :
+- IntersectionObserver → ajoute la classe .visible au scroll (threshold 0.15)
+- Nav sticky : classe .scrolled après 80px de scroll
+- Smooth scroll sur les liens d'ancre
+- Menu burger mobile (toggle classe .open sur nav){form_info}
+
+Cible UNIQUEMENT les ids et classes présents dans ce HTML :
+{html}"""
+
+        js = clean_code_output(
+            self.call_claude_continuable(system_prompt, user_message, max_tokens=4096)
+        )
+        if js and js.count("{") == js.count("}"):
+            (self.project.output_dir / "main.js").write_text(js, encoding="utf-8")
+            self.logger.info("main.js régénéré avec succès")
+            return True
+        self.logger.error("JS toujours déséquilibré après regenerate_js")
+        return False
+
+    def fix(self, classes_manquantes: list[str], css: str, html: str) -> str:
+        """Génère UNIQUEMENT les règles CSS pour les classes manquantes.
+
+        Reçoit directement les noms de classes (extraits par main.py depuis
+        les problèmes structurés du validateur) — plus aucun parsing de
+        message humain ici.
+        """
         typer.echo("   🔧 Designer : génération des règles manquantes...")
 
-        classes_manquantes = [p for p in problemes if "absente du CSS" in p]
         if not classes_manquantes:
             typer.echo("   ℹ️  Aucun problème de classe à corriger")
             return ""
@@ -272,11 +319,7 @@ Tu génères UNIQUEMENT les nouvelles règles CSS pour des classes manquantes.
 Ne réécris PAS le CSS existant.
 Réponds sans balise markdown, juste les règles CSS."""
 
-        noms_classes = []
-        for p in classes_manquantes:
-            debut = p.find("'") + 1
-            fin = p.find("'", debut)
-            noms_classes.append(p[debut:fin])
+        noms_classes = classes_manquantes
 
         plan = self.read_json("temp/plan.json")
         couleurs = plan.get("style_guide", {}).get("couleurs", {})

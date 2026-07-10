@@ -77,7 +77,7 @@ def generate_safe(
     max_tentatives: int = typer.Option(2, help="Nombre max de corrections automatiques")
 ):
     """Pipeline piloté par l'orchestrateur + boucle de validation/correction."""
-    from agents.validator import ValidatorAgent
+    from agents.validator import ValidatorAgent, FIXABLE_TYPES
 
     proj = Project(project_name)
     proj.setup_dirs()
@@ -102,30 +102,53 @@ def generate_safe(
         result = validator.run({})
 
         if result["valide"]:
-            typer.echo("\n✅ Site validé, aucune correction nécessaire !")
+            typer.echo("\n✅ Site validé, aucune erreur bloquante !")
+            if result["warnings"]:
+                typer.echo(f"   ({len(result['warnings'])} warning(s) à vérifier à l'œil — voir ci-dessus)")
             break
 
-        typer.echo(f"\n🔧 Correction de {len(result['problemes'])} problème(s)...")
+        # Aiguillage sur le TYPE structuré, plus jamais sur le texte du message.
+        erreurs  = result["erreurs"]
+        fixables = [p for p in erreurs if p["type"] in FIXABLE_TYPES]
 
-        html_problems = [p for p in result["problemes"] if "tronqué" in p or "incomplet" in p]
-        css_problems  = [p for p in result["problemes"] if "absente du CSS" in p]
+        if not fixables:
+            typer.echo(f"\n⚠️  {len(erreurs)} erreur(s) non corrigeable(s) automatiquement :")
+            for p in erreurs:
+                typer.echo(f"   ❌ {p['message']}")
+            typer.echo("   → correction manuelle requise (ou relance design-only)")
+            break
+
+        typer.echo(f"\n🔧 Correction de {len(fixables)} problème(s)...")
+
+        html_problems      = [p for p in fixables if p["type"] in ("html_tronque", "html_incomplet")]
+        js_problems        = [p for p in fixables if p["type"] == "js_tronque"]
+        classes_manquantes = [p["classe"] for p in fixables if p["type"] == "classe_absente"]
 
         if html_problems:
             typer.echo("   → HTML tronqué détecté — régénération...")
-            ok = designer.regenerate_html()
-            if ok:
+            if designer.regenerate_html():
                 typer.echo("   ✅ index.html régénéré")
             else:
                 typer.echo("   ❌ Régénération HTML échouée")
 
-        if css_problems:
-            css = (output_dir / "style.css").read_text(encoding="utf-8")
-            html = (output_dir / "index.html").read_text(encoding="utf-8")
-            nouvelles_regles = designer.fix(css_problems, css, html)
-            if nouvelles_regles:
-                css_complet = css + "\n\n/* === Règles ajoutées par correction auto === */\n" + nouvelles_regles
-                (output_dir / "style.css").write_text(css_complet, encoding="utf-8")
-                typer.echo("   ✅ Nouvelles règles CSS ajoutées")
+        if js_problems:
+            typer.echo("   → JS tronqué détecté — régénération...")
+            if designer.regenerate_js():
+                typer.echo("   ✅ main.js régénéré")
+            else:
+                typer.echo("   ❌ Régénération JS échouée")
+
+        if classes_manquantes:
+            css_path  = output_dir / "style.css"
+            html_path = output_dir / "index.html"
+            if css_path.exists() and html_path.exists():
+                css  = css_path.read_text(encoding="utf-8")
+                html = html_path.read_text(encoding="utf-8")
+                nouvelles_regles = designer.fix(classes_manquantes, css, html)
+                if nouvelles_regles:
+                    css_complet = css + "\n\n/* === Règles ajoutées par correction auto === */\n" + nouvelles_regles
+                    css_path.write_text(css_complet, encoding="utf-8")
+                    typer.echo("   ✅ Nouvelles règles CSS ajoutées")
 
         tentative += 1
     else:
@@ -160,7 +183,10 @@ def validate(
     if result["valide"]:
         typer.echo("\n✅ Site validé !")
     else:
-        typer.echo(f"\n⚠️  {len(result['problemes'])} point(s) à corriger")
+        typer.echo(
+            f"\n⚠️  {len(result['erreurs'])} erreur(s) bloquante(s), "
+            f"{len(result['warnings'])} warning(s)"
+        )
 
 
 @app.command()
