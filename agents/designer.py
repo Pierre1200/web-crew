@@ -185,23 +185,40 @@ RÈGLES JS (vanilla, aucune librairie) :
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "assets").mkdir(exist_ok=True)
 
-        (output_dir / "style.css").write_text(css, encoding="utf-8")
-        (output_dir / "main.js").write_text(js, encoding="utf-8")
+        # Même garde pour les 3 fichiers : on n'écrase JAMAIS une version
+        # existante par du contenu vide ou invalide (avant, seul index.html
+        # était protégé — un séparateur manquant vidait style.css/main.js).
+        ecrits = []
+
+        if css:
+            (output_dir / "style.css").write_text(css, encoding="utf-8")
+            ecrits.append("style.css")
+        else:
+            self.logger.error("CSS vide après génération — style.css non écrasé")
+            typer.echo("   ❌ CSS vide — style.css existant conservé")
+
+        if js:
+            (output_dir / "main.js").write_text(js, encoding="utf-8")
+            ecrits.append("main.js")
+        else:
+            self.logger.error("JS vide après génération — main.js non écrasé")
+            typer.echo("   ❌ JS vide — main.js existant conservé")
 
         if self._valider_html(html):
             (output_dir / "index.html").write_text(html, encoding="utf-8")
-            typer.echo(f"✅ Site généré → {output_dir}/")
-            typer.echo("   • index.html")
-            typer.echo("   • style.css")
-            typer.echo("   • main.js")
+            ecrits.append("index.html")
         else:
             self.logger.error("HTML invalide après génération — index.html non écrasé")
             typer.echo("   ❌ HTML incomplet — index.html existant conservé")
-            typer.echo(f"   ✅ style.css et main.js écrits → {output_dir}/")
+
+        if ecrits:
+            typer.echo(f"✅ Site généré → {output_dir}/")
+            for f in ecrits:
+                typer.echo(f"   • {f}")
 
         return {
             "output_dir": str(output_dir),
-            "fichiers": ["index.html", "style.css", "main.js"]
+            "fichiers": ecrits,
         }
 
     def regenerate_html(self) -> bool:
