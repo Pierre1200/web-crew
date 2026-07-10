@@ -122,7 +122,8 @@ projects/mon-client/
     "objectifs": ["…"],
     "cibles":    ["…"],
     "sections":  ["Hero — accroche", "À propos", "Services", "Contact"],
-    "style":     { "ambiance": "…", "couleurs_suggérées": ["…"], "typographie": "…" }
+    "style":     { "ambiance": "…", "couleurs_suggérées": ["…"], "typographie": "…" },
+    "formspree_id": ""
   },
   "seo": {
     "type_schema": "LocalBusiness",
@@ -133,6 +134,11 @@ projects/mon-client/
   "output": { "project_id": "mon-client", "type": "site vitrine statique" }
 }
 ```
+
+**`formspree_id`** : identifiant [Formspree](https://formspree.io) pour l'envoi réel des
+formulaires (les 8 caractères après `/f/` dans l'URL du formulaire). S'il est renseigné,
+le designer génère des formulaires branchés (action + envoi fetch) ; sinon, le JS affiche
+un message honnête invitant à contacter le client par email — jamais de faux « message envoyé ».
 
 ---
 

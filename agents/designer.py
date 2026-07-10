@@ -84,6 +84,38 @@ class DesignerAgent(BaseAgent):
             f'    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?{query}">'
         )
 
+    def _regles_formulaires(self) -> tuple[str, str]:
+        """Règles de branchement des formulaires, pour les prompts HTML et JS.
+
+        Lit site.formspree_id dans config.json :
+        - présent → les formulaires envoient RÉELLEMENT via Formspree
+          (action + method + name sur chaque champ, soumission fetch en JS)
+        - absent  → le JS doit rester honnête : pas de faux message « envoyé »,
+          on invite à contacter directement par email/téléphone.
+        """
+        formspree_id = self.load_config().get("site", {}).get("formspree_id", "")
+
+        if formspree_id:
+            regles_html = f"""
+- FORMULAIRES (envoi réel via Formspree) :
+  - chaque <form> : action="https://formspree.io/f/{formspree_id}" method="POST"
+  - chaque champ de saisie : attribut name explicite (name="nom", name="email", name="message"...)
+  - dans chaque <form> : <input type="hidden" name="_subject" value="[Site] <objet selon la section>">"""
+            regles_js = """
+- Soumission des formulaires : preventDefault + validation, puis envoi RÉEL via
+  fetch(form.action, {method: "POST", body: new FormData(form), headers: {Accept: "application/json"}}).
+  Si response.ok → message de confirmation (textContent) + form.reset().
+  Sinon (erreur HTTP ou exception réseau) → message d'erreur invitant à réessayer
+  ou à écrire directement par email. Jamais d'innerHTML."""
+        else:
+            regles_html = ""
+            regles_js = """
+- IMPORTANT : aucun service d'envoi n'est configuré pour les formulaires. Le JS
+  valide les champs mais NE DOIT PAS afficher de faux message « envoyé » :
+  affiche un message honnête invitant à contacter directement par email ou
+  téléphone (utilise les coordonnées présentes dans les textes si disponibles)."""
+        return regles_html, regles_js
+
     def _generate_site(self, plan: dict, textes: dict) -> tuple[str, str, str]:
         """Génère HTML + CSS + JS en une seule requête pour garantir la cohérence."""
         style_guide  = plan["style_guide"]
@@ -112,6 +144,7 @@ class DesignerAgent(BaseAgent):
             f"\nSections avec formulaire (validation JS requise) : {', '.join(form_sections)}."
             if form_sections else ""
         )
+        regles_form_html, regles_form_js = self._regles_formulaires()
 
         system_prompt = f"""\
 Tu es un développeur web full-stack expert.
@@ -146,7 +179,7 @@ RÈGLES HTML :
 - <script src="main.js"></script> juste avant </body>
 - Pas de <style> ni de CSS inline
 - Classes BEM cohérentes avec le CSS généré
-- Les <img> : utiliser src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" (ex: pour alt="Vue de Paris by night" → src="https://picsum.photos/seed/paris/800/450") et classe img-placeholder. Choisis un mot-clé court (1-2 mots, minuscules, sans accent, tirets autorisés) tiré du contexte de l'image. Largeur/hauteur adaptées au ratio voulu (4/3 → 800/600, 16/9 → 800/450).
+- Les <img> : utiliser src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" (ex: pour alt="Vue de Paris by night" → src="https://picsum.photos/seed/paris/800/450") et classe img-placeholder. Choisis un mot-clé court (1-2 mots, minuscules, sans accent, tirets autorisés) tiré du contexte de l'image. Largeur/hauteur adaptées au ratio voulu (4/3 → 800/600, 16/9 → 800/450).{regles_form_html}
 
 RÈGLES CSS :{fonts_css_note}
 - Variables CSS dans :root (--color-primaire, --color-fond, --color-texte, --color-accent, --color-secondaire, --font-heading, --font-body)
@@ -167,7 +200,7 @@ RÈGLES JS (vanilla, aucune librairie) :
 - IntersectionObserver → ajoute classe .visible au scroll (threshold 0.15)
 - Nav sticky : classe .scrolled après 80px de scroll
 - Smooth scroll sur liens d'ancre
-- Menu burger mobile (toggle classe .open sur nav){form_info}"""
+- Menu burger mobile (toggle classe .open sur nav){form_info}{regles_form_js}"""
 
         typer.echo("   → Génération HTML + CSS + JS en une seule requête...")
         response = self.call_claude_continuable(system_prompt, user_message, max_tokens=8192)
@@ -246,6 +279,8 @@ Tu es un développeur web senior.
 Tu génères UNIQUEMENT la structure HTML5 complète.
 Commence directement par <!DOCTYPE html> et termine obligatoirement par </body></html>."""
 
+        regles_form_html, _ = self._regles_formulaires()
+
         user_message = f"""Génère un index.html complet pour un site vitrine.
 
 Classes CSS disponibles — utilise UNIQUEMENT celles-ci, n'en invente aucune :
@@ -257,7 +292,7 @@ OBLIGATOIRE dans le <head> :
 - <link rel="stylesheet" href="style.css">
 OBLIGATOIRE : <script src="main.js"></script> avant </body>
 INTERDIT : balise <style>, CSS inline
-Images : src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" avec un mot-clé tiré du contexte de l'image (minuscules, sans accent, tirets autorisés).
+Images : src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" avec un mot-clé tiré du contexte de l'image (minuscules, sans accent, tirets autorisés).{regles_form_html}
 
 Sections dans le <body> : {sections_str}
 
@@ -290,6 +325,7 @@ Textes à intégrer :
             "(champs requis, format email, message d'erreur/succès via textContent)"
             if form_sections else ""
         )
+        _, regles_form_js = self._regles_formulaires()
 
         system_prompt = """\
 Tu es un développeur JavaScript senior.
@@ -302,7 +338,7 @@ Fonctionnalités requises :
 - IntersectionObserver → ajoute la classe .visible au scroll (threshold 0.15)
 - Nav sticky : classe .scrolled après 80px de scroll
 - Smooth scroll sur les liens d'ancre
-- Menu burger mobile (toggle classe .open sur nav){form_info}
+- Menu burger mobile (toggle classe .open sur nav){form_info}{regles_form_js}
 
 Cible UNIQUEMENT les ids et classes présents dans ce HTML :
 {html}"""

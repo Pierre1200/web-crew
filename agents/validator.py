@@ -141,6 +141,18 @@ class ValidatorAgent(BaseAgent):
             self._pb("fonts_manquantes", "warning",
                      "Aucune police web chargée — le site utilisera les polices système")
 
+    def check_formulaires(self, html: str):
+        """Détecte les formulaires factices : un <form> sans attribut action
+        n'envoie rien nulle part — le visiteur croit avoir écrit au client.
+        """
+        if not html:
+            return
+        for form_tag in re.findall(r'<form[^>]*>', html):
+            if 'action=' not in form_tag:
+                self._pb("formulaire_sans_action", "warning",
+                         "Formulaire sans attribut action — aucun envoi réel "
+                         "(renseigne site.formspree_id dans config.json)")
+
     def check_textes_complets(self):
         """Vérifie que chaque section de textes.json contient bien du contenu.
 
@@ -182,6 +194,7 @@ class ValidatorAgent(BaseAgent):
         self.check_liens_fichiers(html)
         self.check_css_complet(css)
         self.check_js_complet(js)
+        self.check_formulaires(html)
         self.check_textes_complets()
 
         erreurs  = [p for p in self.problemes if p["niveau"] == "erreur"]

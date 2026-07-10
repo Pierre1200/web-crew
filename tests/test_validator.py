@@ -123,6 +123,28 @@ def test_section_vide_signale_en_warning(proj):
     assert result["valide"] is True
 
 
+def test_formulaire_sans_action_signale_en_warning(proj):
+    html = HTML_OK.replace(
+        "<body>", '<body><form id="contactForm" novalidate></form>'
+    )
+    _site(proj, html=html)
+    result = ValidatorAgent(proj).run({})
+    pbs = [p for p in result["problemes"] if p["type"] == "formulaire_sans_action"]
+    assert len(pbs) == 1
+    assert pbs[0]["niveau"] == "warning"
+    assert result["valide"] is True  # factice = à signaler, pas bloquant
+
+
+def test_formulaire_avec_action_ok(proj):
+    html = HTML_OK.replace(
+        "<body>",
+        '<body><form id="f" action="https://formspree.io/f/abcd1234" method="POST"></form>',
+    )
+    _site(proj, html=html)
+    result = ValidatorAgent(proj).run({})
+    assert "formulaire_sans_action" not in _types(result)
+
+
 def test_tous_les_problemes_sont_structures(proj):
     _site(proj, html="<html>", css="", js="{")
     result = ValidatorAgent(proj).run({})
