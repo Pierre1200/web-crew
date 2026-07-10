@@ -63,9 +63,9 @@ L'extraction de texte, le catalogage d'images et toute la validation sont réali
 git clone <url-du-repo>
 cd web-crew
 
-python3 -m venv .venv
+python3 -m venv .venv              # Python 3.12+ recommandé
 source .venv/bin/activate          # Windows : .venv\Scripts\activate
-pip install anthropic typer python-dotenv pypdf python-docx
+pip install -r requirements.txt
 
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 ```
