@@ -1,13 +1,17 @@
 import typer
 from dotenv import load_dotenv
+
+# .env doit être chargé AVANT d'importer les agents : base_agent lit
+# WEBCREW_MODEL au moment de l'import (attribut de classe). Avec load_dotenv()
+# après les imports, la variable du .env était silencieusement ignorée.
+load_dotenv()
+
 from utils.project import Project
 from agents.orchestrator import OrchestratorAgent
 from agents.ingestion import IngestionAgent
 from agents.copywriter import CopywriterAgent
 from agents.designer import DesignerAgent
 from agents.seo import SeoAgent
-
-load_dotenv()
 
 # Registre des agents disponibles pour le dispatch.
 # Ajouter un nouvel agent ici suffit pour que l'orchestrateur puisse le planifier.

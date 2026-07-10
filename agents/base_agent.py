@@ -22,15 +22,27 @@ class BaseAgent:
         self.name = name
         self.role = role
         self.project = project
-
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise RuntimeError(
-                "ANTHROPIC_API_KEY absente — renseigne-la dans .env "
-                "ou dans l'environnement avant de lancer un agent."
-            )
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self._client = None  # créé au premier appel API — voir la property client
         self.logger = self._setup_logger()
+
+    @property
+    def client(self):
+        """Client Anthropic créé paresseusement (lazy), au premier appel API.
+
+        Avant, le client (et donc la clé API) était exigé dès __init__ : le
+        validateur « zéro token » refusait de tourner sans ANTHROPIC_API_KEY
+        alors qu'il n'appelle jamais l'API. Une @property se comporte comme un
+        attribut à l'usage (self.client) mais exécute ce code à chaque accès.
+        """
+        if self._client is None:
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise RuntimeError(
+                    "ANTHROPIC_API_KEY absente — renseigne-la dans .env "
+                    "ou dans l'environnement avant de lancer un agent."
+                )
+            self._client = anthropic.Anthropic(api_key=api_key)
+        return self._client
 
     def load_config(self) -> dict:
         """Charge le config.json du projet. Point d'accès unique à la config."""
