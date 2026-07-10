@@ -2,9 +2,15 @@ from __future__ import annotations
 import json
 import re
 import typer
+from html import escape
 from agents.base_agent import BaseAgent
 from utils.project import Project
 from utils.cleaners import parse_json_safe, compact_json
+
+# Marqueurs qui délimitent le bloc injecté : relancer seo-only remplace le
+# bloc existant au lieu d'empiler les balises (injection idempotente).
+_SEO_DEBUT = "<!-- web-crew:seo -->"
+_SEO_FIN   = "<!-- /web-crew:seo -->"
 
 
 class SeoAgent(BaseAgent):
@@ -76,19 +82,36 @@ Produis un JSON avec cette structure exacte :
 
         html = html_path.read_text(encoding="utf-8")
 
-        balises = []
-        balises.append(f'    <title>{meta["title"]}</title>')
-        balises.append(f'    <meta name="description" content="{meta["meta_description"]}">')
-        balises.append(f'    <meta name="keywords" content="{", ".join(meta["keywords"])}">')
-        balises.append(f'    <meta property="og:title" content="{meta["og_title"]}">')
-        balises.append(f'    <meta property="og:description" content="{meta["og_description"]}">')
+        # escape() neutralise ", <, >, & : une description contenant un
+        # guillemet ne peut plus casser l'attribut content="..." ni injecter
+        # de balise dans le <head>. Les valeurs viennent du modèle : on ne
+        # leur fait pas confiance aveuglément.
+        balises = [_SEO_DEBUT]
+        if meta.get("title"):
+            balises.append(f'    <title>{escape(meta["title"])}</title>')
+        if meta.get("meta_description"):
+            balises.append(f'    <meta name="description" content="{escape(meta["meta_description"])}">')
+        if meta.get("keywords"):
+            balises.append(f'    <meta name="keywords" content="{escape(", ".join(meta["keywords"]))}">')
+        if meta.get("og_title"):
+            balises.append(f'    <meta property="og:title" content="{escape(meta["og_title"])}">')
+        if meta.get("og_description"):
+            balises.append(f'    <meta property="og:description" content="{escape(meta["og_description"])}">')
         balises.append('    <meta property="og:type" content="website">')
 
-        schema_json = json.dumps(meta["schema_org"], ensure_ascii=False, indent=2)
-        balises.append(f'    <script type="application/ld+json">\n{schema_json}\n    </script>')
+        if meta.get("schema_org"):
+            schema_json = json.dumps(meta["schema_org"], ensure_ascii=False, indent=2)
+            balises.append(f'    <script type="application/ld+json">\n{schema_json}\n    </script>')
+        balises.append("    " + _SEO_FIN)
 
         bloc_seo = "\n".join(balises)
 
+        # Idempotence : retire un éventuel bloc d'une exécution précédente,
+        # puis le <title> d'origine du designer — plus aucun doublon possible.
+        html = re.sub(
+            rf'\s*{re.escape(_SEO_DEBUT)}.*?{re.escape(_SEO_FIN)}',
+            '', html, flags=re.DOTALL
+        )
         if "<title>" in html:
             html = re.sub(r'\s*<title>.*?</title>', '', html, flags=re.DOTALL)
 
