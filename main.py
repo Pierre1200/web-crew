@@ -20,6 +20,38 @@ AGENT_REGISTRY = {
 app = typer.Typer()
 
 
+def _load_project(project_name: str) -> Project:
+    """Charge un projet en vérifiant qu'il existe AVANT de créer quoi que ce soit.
+
+    Sans ce garde, une faute de frappe dans --project créait des dossiers
+    fantômes (setup_dirs) puis crashait en FileNotFoundError sur le brief.
+    Ici : message clair, liste des projets disponibles, code de sortie 1.
+    """
+    proj = Project(project_name)
+
+    if not proj.root.is_dir():
+        typer.echo(f"❌ Projet '{project_name}' introuvable dans projects/")
+        projets_dir = proj.root.parent
+        existants = sorted(
+            d.name for d in projets_dir.iterdir()
+            if d.is_dir() and (d / "config.json").exists()
+        ) if projets_dir.is_dir() else []
+        if existants:
+            typer.echo(f"   Projets disponibles : {', '.join(existants)}")
+        raise typer.Exit(code=1)
+
+    manquants = proj.fichiers_requis_manquants()
+    if manquants:
+        typer.echo(
+            f"❌ Projet '{project_name}' incomplet — "
+            f"fichier(s) manquant(s) : {', '.join(manquants)}"
+        )
+        raise typer.Exit(code=1)
+
+    proj.setup_dirs()
+    return proj
+
+
 def _run_ingestion(proj: Project) -> dict:
     """Digère les données brutes de data/ AVANT l'orchestration.
 
@@ -56,8 +88,7 @@ def generate(
     project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet (ex: mon-client)")
 ):
     """Lance le pipeline piloté par l'orchestrateur."""
-    proj = Project(project_name)
-    proj.setup_dirs()
+    proj = _load_project(project_name)
     typer.echo(f"\n🚀 Lancement de web-crew pour : {proj.name}\n")
 
     _run_ingestion(proj)
@@ -79,8 +110,7 @@ def generate_safe(
     """Pipeline piloté par l'orchestrateur + boucle de validation/correction."""
     from agents.validator import ValidatorAgent, FIXABLE_TYPES
 
-    proj = Project(project_name)
-    proj.setup_dirs()
+    proj = _load_project(project_name)
     typer.echo(f"\n🚀 Génération sécurisée pour : {proj.name}\n")
 
     _run_ingestion(proj)
@@ -163,7 +193,7 @@ def design_only(
     project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet")
 ):
     """Relance uniquement le designer (textes déjà générés)."""
-    proj = Project(project_name)
+    proj = _load_project(project_name)
     typer.echo("\n🎨 Relance du designer uniquement...\n")
     designer = DesignerAgent(proj)
     result = designer.run({})
@@ -176,7 +206,7 @@ def validate(
 ):
     """Lance le validateur sur le site généré (zéro token)."""
     from agents.validator import ValidatorAgent
-    proj = Project(project_name)
+    proj = _load_project(project_name)
     typer.echo(f"\n🔍 Validation de {proj.name}...\n")
     validator = ValidatorAgent(proj)
     result = validator.run({})
@@ -194,7 +224,7 @@ def seo_only(
     project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet")
 ):
     """Génère les métadonnées SEO et les injecte dans le HTML."""
-    proj = Project(project_name)
+    proj = _load_project(project_name)
     typer.echo(f"\n🔍 Génération SEO pour {proj.name}...\n")
     seo = SeoAgent(proj)
     meta = seo.run({})
@@ -209,14 +239,13 @@ def list_agents():
         typer.echo(f"  • {name}")
 
 @app.command()
-def ingest(project: str = typer.Option(..., "--project", "-p")):
+def ingest(
+    project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet"),
+    force: bool = typer.Option(False, "--force", help="Ignore le cache et relance l'analyse IA"),
+):
     """Lance l'agent Ingestion sur les données du projet."""
-    from agents.ingestion import IngestionAgent
-    from utils.project import Project
-    proj = Project(project)
-    proj.setup_dirs()
-    agent = IngestionAgent(proj)
-    agent.run({})
+    proj = _load_project(project_name)
+    IngestionAgent(proj).run({"force": force})
 
 if __name__ == "__main__":
     app()

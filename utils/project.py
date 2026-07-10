@@ -1,13 +1,20 @@
 import json
 from pathlib import Path
 
+# Racine des projets, calculée depuis CE fichier (utils/ → racine du dépôt).
+# Avant : Path("projects") était relatif au répertoire courant — lancer
+# main.py depuis un autre dossier créait les projets au mauvais endroit.
+# Analogie C : c'est la différence entre un chemin relatif au CWD du process
+# et un chemin construit depuis l'emplacement du binaire.
+_PROJECTS_DIR = Path(__file__).resolve().parent.parent / "projects"
+
 
 class Project:
     """Représente un projet client branché sur le crew."""
 
     def __init__(self, name: str):
         self.name = name
-        self.root = Path("projects") / name
+        self.root = _PROJECTS_DIR / name
 
         self.brief_path  = self.root / "brief.md"
         self.config_path = self.root / "config.json"
@@ -22,6 +29,13 @@ class Project:
 
     def load_brief(self) -> str:
         return self.brief_path.read_text(encoding="utf-8")
+
+    def fichiers_requis_manquants(self) -> list:
+        """Noms des fichiers indispensables absents (brief.md, config.json).
+
+        Liste vide = le projet est prêt à être traité.
+        """
+        return [p.name for p in (self.brief_path, self.config_path) if not p.exists()]
 
     def setup_dirs(self):
         """Crée tous les dossiers du projet s'ils n'existent pas."""
