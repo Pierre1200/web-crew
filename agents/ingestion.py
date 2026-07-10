@@ -4,6 +4,7 @@ Lit le dossier data/, extrait le texte de tous les formats,
 catalogue les images, puis trie/structure le tout avec l'IA.
 """
 from __future__ import annotations
+import hashlib
 import typer
 from pathlib import Path
 from agents.base_agent import BaseAgent
@@ -34,6 +35,36 @@ class IngestionAgent(BaseAgent):
             role="Ingestion — digère et structure les données client",
             project=project,
         )
+
+    # ── CACHE (zéro token) ─────────────────────────────────────────
+    def _empreinte_data(self, fichiers: list[Path]) -> str:
+        """Empreinte du contenu de data/ : chemin + taille + date de modif.
+
+        Sert de clé de cache. L'ingestion tournait à CHAQUE generate même si
+        data/ n'avait pas bougé — ~2-3k tokens Sonnet repayés à chaque run.
+        Si l'empreinte n'a pas changé, on réutilise temp/context.json.
+        (Analogie C : un checksum du dossier, comme un hash de fichier objet
+        pour savoir s'il faut recompiler.)
+        """
+        h = hashlib.sha256()
+        for f in sorted(fichiers):
+            st = f.stat()
+            ligne = f"{f.relative_to(self.project.data_dir)}|{st.st_size}|{st.st_mtime_ns}\n"
+            h.update(ligne.encode("utf-8"))
+        return h.hexdigest()
+
+    def _contexte_en_cache(self, empreinte: str) -> dict | None:
+        """Retourne le contexte précédent si data/ n'a pas changé, sinon None."""
+        path = self.project.temp_dir / "context.json"
+        if not path.exists():
+            return None
+        try:
+            cache = self.read_json("temp/context.json")
+        except (ValueError, OSError):
+            return None
+        if cache.get("_empreinte_data") == empreinte:
+            return cache
+        return None
 
     # ── BORNAGE DU VOLUME (zéro token) ─────────────────────────────
     def _borner_textes(self, textes: dict) -> dict:
@@ -157,6 +188,16 @@ Produis un JSON avec cette structure :
             return {"vide": True}
         typer.echo(f"   → {len(fichiers)} fichier(s) trouvé(s)")
 
+        # Cache : si data/ n'a pas changé depuis la dernière ingestion,
+        # on réutilise le contexte existant sans appel IA (--force pour ignorer)
+        empreinte = self._empreinte_data(fichiers)
+        if not context.get("force"):
+            cache = self._contexte_en_cache(empreinte)
+            if cache is not None:
+                typer.echo("   ♻️  data/ inchangé — contexte réutilisé (0 token)")
+                self.logger.info("Cache d'ingestion réutilisé (empreinte identique)")
+                return cache
+
         # Étape 2 : extraction texte
         textes = self._extraire_textes(fichiers)
         typer.echo(f"   → {len(textes)} document(s) texte extrait(s)")
@@ -173,8 +214,9 @@ Produis un JSON avec cette structure :
             contexte = {"contenu_par_theme": {}, "images_suggerees": [],
                         "manques": ["aucun texte fourni"], "resume": "Images seulement."}
 
-        # Ajoute le catalogue brut au contexte
+        # Ajoute le catalogue brut au contexte + l'empreinte pour le cache
         contexte["images_brutes"] = images
+        contexte["_empreinte_data"] = empreinte
 
         # Sauvegarde
         self.write_json("temp/context.json", contexte)
