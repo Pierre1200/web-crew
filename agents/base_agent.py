@@ -101,6 +101,26 @@ class BaseAgent:
             )
         return "".join(parts)
 
+    def lire_contexte_ingestion(self) -> dict:
+        """Relit temp/context.json produit par l'agent Ingestion, s'il existe.
+
+        Retourne le contexte complet, ou {} si le fichier est absent, vide ou
+        illisible — l'agent appelant fonctionne alors comme si data/ n'existait
+        pas. Mutualisé ici : l'orchestrateur et le copywriter dupliquaient
+        chacun cette lecture défensive (violation DRY).
+        """
+        path = self.project.temp_dir / "context.json"
+        if not path.exists():
+            return {}
+        try:
+            ctx = self.read_json("temp/context.json")
+        except (ValueError, OSError) as e:
+            self.logger.warning(f"context.json illisible, ignoré : {e}")
+            return {}
+        if not ctx or ctx.get("vide"):
+            return {}
+        return ctx
+
     def read_json(self, filepath: str) -> dict:
         """Lit un fichier JSON relatif à la racine du projet."""
         path = self.project.root / filepath

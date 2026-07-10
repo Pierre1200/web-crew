@@ -2,7 +2,7 @@ from __future__ import annotations
 import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
-from utils.cleaners import compact_json
+from utils.cleaners import compact_json, parse_json_safe
 
 
 class OrchestratorAgent(BaseAgent):
@@ -20,24 +20,15 @@ class OrchestratorAgent(BaseAgent):
             project=project
         )
 
-    def _lire_contexte_ingestion(self) -> str:
-        """Relit temp/context.json produit par l'agent Ingestion, s'il existe.
+    def _bloc_contexte_ingestion(self) -> str:
+        """Formate le contexte d'ingestion en bloc prêt à injecter dans le prompt.
 
-        Retourne un bloc prêt à injecter dans le prompt (résumé, thèmes couverts,
-        manques) — ou une chaîne vide si l'ingestion n'a rien produit. Ainsi
+        Retourne une chaîne vide si l'ingestion n'a rien produit — ainsi
         l'orchestrateur fonctionne à l'identique quand data/ est absent.
+        (La lecture défensive vit dans BaseAgent.lire_contexte_ingestion.)
         """
-        context_path = self.project.temp_dir / "context.json"
-        if not context_path.exists():
-            return ""
-
-        try:
-            ctx = self.read_json("temp/context.json")
-        except (ValueError, OSError) as e:
-            self.logger.warning(f"context.json illisible, ignoré : {e}")
-            return ""
-
-        if not ctx or ctx.get("vide"):
+        ctx = self.lire_contexte_ingestion()
+        if not ctx:
             return ""
 
         digest = {
@@ -63,7 +54,7 @@ class OrchestratorAgent(BaseAgent):
 
         brief_text = self.read_text("brief.md")
         config = self.load_config()
-        contexte_client = self._lire_contexte_ingestion()
+        contexte_client = self._bloc_contexte_ingestion()
 
         system_prompt = """Tu es un chef de projet web expert.
 Tu reçois un brief client et tu produis un plan de travail structuré.
@@ -123,7 +114,6 @@ Décide quels agents lancer et produis le plan de travail."""
         self.logger.info("Génération du plan de travail...")
         response = self.call_claude(system_prompt, user_message)
 
-        from utils.cleaners import parse_json_safe
         plan = parse_json_safe(response)
 
         required = {"projet", "taches", "style_guide"}
@@ -132,6 +122,12 @@ Décide quels agents lancer et produis le plan de travail."""
             raise ValueError(f"Plan invalide — clés manquantes : {missing}")
         if not isinstance(plan.get("taches"), list) or not plan["taches"]:
             raise ValueError("Plan invalide — 'taches' doit être une liste non vide")
+        # Valide aussi chaque tâche : un champ absent ici donnerait un KeyError
+        # cryptique plus loin (tri par priorité, dispatch, copywriter).
+        for i, tache in enumerate(plan["taches"]):
+            manquants = {"agent", "priorite", "instruction"} - set(tache)
+            if manquants:
+                raise ValueError(f"Plan invalide — tâche {i} sans champ(s) : {manquants}")
 
         self.write_json("temp/plan.json", plan)
         typer.echo(f"✅ Plan de travail généré → {self.project.temp_dir}/plan.json")

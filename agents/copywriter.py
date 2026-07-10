@@ -15,42 +15,38 @@ class CopywriterAgent(BaseAgent):
             project=project
         )
 
-    def _lire_contenu_ingestion(self) -> dict:
-        """Relit temp/context.json produit par l'agent Ingestion, s'il existe.
-
-        Retourne {"contenu_par_theme": {...}, "manques": [...]} ou {} si
-        l'ingestion n'a rien produit. Permet au copywriter de s'appuyer sur le
-        contenu réel du client au lieu d'inventer.
-        """
-        context_path = self.project.temp_dir / "context.json"
-        if not context_path.exists():
-            return {}
-        try:
-            ctx = self.read_json("temp/context.json")
-        except (ValueError, OSError) as e:
-            self.logger.warning(f"context.json illisible, ignoré : {e}")
-            return {}
-        if not ctx or ctx.get("vide"):
-            return {}
-        return {
-            "contenu_par_theme": ctx.get("contenu_par_theme", {}),
-            "manques": ctx.get("manques", []),
-        }
-
     def run(self, context: dict) -> dict:
         typer.echo("✍️  Copywriter : rédaction des textes...")
 
         plan = self.read_json("temp/plan.json")
         config = self.load_config()
-        ingestion = self._lire_contenu_ingestion()
+        # Lecture défensive mutualisée dans BaseAgent — on ne garde ici que
+        # les champs utiles au copywriter.
+        ctx = self.lire_contexte_ingestion()
+        ingestion = {
+            "contenu_par_theme": ctx.get("contenu_par_theme", {}),
+            "manques": ctx.get("manques", []),
+        } if ctx else {}
 
+        # next(..., None) au lieu de next(...) : sans valeur par défaut, un
+        # plan.json sans tâche copywriter lèverait StopIteration, illisible.
         instruction = next(
-            t["instruction"] for t in plan["taches"]
-            if t["agent"] == "copywriter"
+            (t["instruction"] for t in plan["taches"] if t["agent"] == "copywriter"),
+            None,
         )
+        if instruction is None:
+            raise ValueError(
+                "temp/plan.json ne contient aucune tâche 'copywriter' — "
+                "relance l'orchestrateur (generate) ou corrige le plan."
+            )
 
         style_guide = plan["style_guide"]
-        sections = config["site"]["sections"]
+        sections = config.get("site", {}).get("sections") or []
+        if not sections:
+            raise ValueError(
+                "config.json : champ 'site.sections' manquant ou vide — "
+                "le copywriter ne sait pas quelles sections rédiger."
+            )
         sections_str = "\n".join(f"  - {s}" for s in sections)
 
         # Bloc de contenu réel + consigne anti-invention, seulement s'il y a du digéré
