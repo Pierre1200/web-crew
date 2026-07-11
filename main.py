@@ -262,6 +262,18 @@ def seo_only(
 
 
 @app.command()
+def critique(
+    project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet")
+):
+    """Contrôle le FOND des textes générés (inventions, sections creuses) — 1 appel Haiku."""
+    from agents.critique import CritiqueAgent
+    proj = _load_project(project_name)
+    typer.echo(f"\n🧐 Critique de {proj.name}...\n")
+    CritiqueAgent(proj).run({})
+    _afficher_conso()
+
+
+@app.command()
 def list_agents():
     """Affiche les agents disponibles dans le registre."""
     typer.echo("Agents dans le registre :")

@@ -51,6 +51,7 @@ Chaque agent tourne sur le modèle adapté à sa tâche — un arbitrage **quali
 | **Copywriter** | Rédige tous les textes du site à partir du contenu réel | Sonnet 4.6 | ✅ |
 | **Designer** | Génère HTML + CSS + JS cohérents en une passe | Opus 4.8 | ✅ |
 | **Validateur** | Contrôle qualité pur Python (HTML complet, classes cohérentes, liens…) | — *(0 token)* | — |
+| **Critique** | Contrôle du fond des textes : faits inventés, sections creuses, générique | Haiku 4.5 | — |
 | **SEO** | Métadonnées, Open Graph, Schema.org, sitemap, robots.txt | Haiku 4.5 | — |
 
 L'extraction de texte, le catalogage d'images et toute la validation sont réalisés en **Python pur, sans appel IA** — les tokens ne sont dépensés que là où l'intelligence apporte réellement quelque chose.
@@ -85,6 +86,7 @@ python3 main.py generate-safe --project mon-client
 python3 main.py ingest       --project mon-client   # digère data/ uniquement
 python3 main.py design-only  --project mon-client   # relance le designer seul
 python3 main.py validate     --project mon-client   # validateur seul (0 token)
+python3 main.py critique     --project mon-client   # contrôle du fond des textes (1 appel Haiku)
 python3 main.py seo-only     --project mon-client   # métadonnées SEO seules
 
 python3 main.py list-agents                          # agents du registre
