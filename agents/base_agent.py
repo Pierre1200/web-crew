@@ -2,7 +2,9 @@ import anthropic
 import os
 import json
 import logging
+import typer
 from utils.project import Project
+from utils.cleaners import parse_json_safe
 
 
 class BaseAgent:
@@ -17,6 +19,12 @@ class BaseAgent:
     # (tâches mécaniques : ingestion/orchestrateur/SEO), ce qui économise des tokens
     # de sortie ET est obligatoire sur Haiku 4.5 (qui ne supporte pas l'adaptatif).
     THINKING = {"type": "adaptive"}
+
+    # Consommation cumulée du run, par modèle. Attribut de CLASSE (analogie C :
+    # variable statique partagée) : tous les agents du process incrémentent la
+    # même table, main.py l'affiche en fin de commande. Le détail appel par
+    # appel reste dans les logs de chaque agent.
+    CONSO_RUN = {}  # {modèle: {"in": int, "out": int, "appels": int}}
 
     def __init__(self, name: str, role: str, project: Project):
         self.name = name
@@ -47,6 +55,15 @@ class BaseAgent:
     def load_config(self) -> dict:
         """Charge le config.json du projet. Point d'accès unique à la config."""
         return self.project.load_config()
+
+    def _enregistrer_usage(self, usage):
+        """Cumule les tokens d'un appel API dans le compteur d'équipe."""
+        conso = BaseAgent.CONSO_RUN.setdefault(
+            self.MODEL, {"in": 0, "out": 0, "appels": 0}
+        )
+        conso["in"] += usage.input_tokens
+        conso["out"] += usage.output_tokens
+        conso["appels"] += 1
 
     def _kwargs_thinking(self) -> dict:
         """Renvoie {'thinking': ...} si l'agent l'active, sinon {} — pour ne pas
@@ -100,6 +117,24 @@ class BaseAgent:
                 f"stop_reason={message.stop_reason})"
             )
         return "".join(parts)
+
+    def parse_json_response(self, response: str) -> dict:
+        """Parse le JSON d'une réponse Claude ; sauvegarde la brute si invalide.
+
+        Avant, une réponse imparsable était perdue (seuls 200 caractères
+        survivaient dans le message d'exception) : impossible de faire un
+        post-mortem. Maintenant elle atterrit dans logs/<agent>_reponse_invalide.txt
+        AVANT que l'erreur remonte — le `raise` nu relance l'exception d'origine.
+        """
+        try:
+            return parse_json_safe(response)
+        except ValueError:
+            self.project.logs_dir.mkdir(parents=True, exist_ok=True)
+            dump = self.project.logs_dir / f"{self.name}_reponse_invalide.txt"
+            dump.write_text(response, encoding="utf-8")
+            self.logger.error(f"JSON invalide — réponse brute sauvegardée : {dump}")
+            typer.echo(f"   💾 Réponse brute sauvegardée pour analyse : {dump}")
+            raise
 
     def lire_contexte_ingestion(self) -> dict:
         """Relit temp/context.json produit par l'agent Ingestion, s'il existe.
@@ -156,6 +191,7 @@ class BaseAgent:
 
         response = self._extraire_texte(message)
         usage = message.usage
+        self._enregistrer_usage(usage)
         self.logger.info(
             f"Réponse reçue — {len(response)} caractères | "
             f"tokens in: {usage.input_tokens}, out: {usage.output_tokens}"
@@ -176,7 +212,6 @@ class BaseAgent:
         Évite de figer le pipeline dans un contexte non-interactif.
         """
         import sys
-        import typer
 
         messages = [{"role": "user", "content": user_message}]
         full_response = ""
@@ -196,6 +231,7 @@ class BaseAgent:
                 message, allow_empty=(message.stop_reason == "max_tokens")
             )
             usage = message.usage
+            self._enregistrer_usage(usage)
             self.logger.info(
                 f"Réponse reçue — {len(chunk)} chars | "
                 f"in: {usage.input_tokens}, out: {usage.output_tokens} | "

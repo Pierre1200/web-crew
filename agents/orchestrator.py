@@ -2,7 +2,7 @@ from __future__ import annotations
 import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
-from utils.cleaners import compact_json, parse_json_safe
+from utils.cleaners import compact_json
 
 
 class OrchestratorAgent(BaseAgent):
@@ -114,7 +114,7 @@ Décide quels agents lancer et produis le plan de travail."""
         self.logger.info("Génération du plan de travail...")
         response = self.call_claude(system_prompt, user_message)
 
-        plan = parse_json_safe(response)
+        plan = self.parse_json_response(response)
 
         required = {"projet", "taches", "style_guide"}
         missing = required - set(plan.keys())

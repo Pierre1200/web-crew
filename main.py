@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from utils.project import Project
+from agents.base_agent import BaseAgent
 from agents.orchestrator import OrchestratorAgent
 from agents.ingestion import IngestionAgent
 from agents.copywriter import CopywriterAgent
@@ -54,6 +55,27 @@ def _load_project(project_name: str) -> Project:
 
     proj.setup_dirs()
     return proj
+
+
+def _afficher_conso():
+    """Affiche le total de tokens consommés pendant la commande, par modèle.
+
+    Volontairement en tokens et pas en euros : les tarifs changent, les
+    compteurs non. Le détail appel par appel reste dans logs/<agent>.log.
+    """
+    conso = BaseAgent.CONSO_RUN
+    if not conso:
+        return
+    typer.echo("\n💰 Consommation du run :")
+    total_in = total_out = 0
+    for modele, c in sorted(conso.items()):
+        typer.echo(
+            f"   • {modele} : {c['appels']} appel(s), "
+            f"{c['in']:,} tokens in, {c['out']:,} out".replace(",", " ")
+        )
+        total_in += c["in"]
+        total_out += c["out"]
+    typer.echo(f"   Total : {total_in:,} in, {total_out:,} out".replace(",", " "))
 
 
 def _run_ingestion(proj: Project) -> dict:
@@ -104,6 +126,7 @@ def generate(
     _run_pipeline(proj, plan)
 
     typer.echo(f"\n✅ Pipeline complet — ouvre {proj.output_dir}/index.html")
+    _afficher_conso()
 
 
 @app.command()
@@ -190,6 +213,7 @@ def generate_safe(
         typer.echo("   Certains problèmes peuvent subsister — vérifie manuellement.")
 
     typer.echo(f"\n🎯 Pipeline terminé — ouvre {proj.output_dir}/")
+    _afficher_conso()
 
 
 @app.command()
@@ -202,6 +226,7 @@ def design_only(
     designer = DesignerAgent(proj)
     result = designer.run({})
     typer.echo(f"✅ Fichiers : {result['fichiers']}")
+    _afficher_conso()
 
 
 @app.command()
@@ -233,6 +258,7 @@ def seo_only(
     seo = SeoAgent(proj)
     meta = seo.run({})
     typer.echo(f"\n✅ Title : {meta.get('title', 'N/A')}")
+    _afficher_conso()
 
 
 @app.command()
@@ -250,6 +276,7 @@ def ingest(
     """Lance l'agent Ingestion sur les données du projet."""
     proj = _load_project(project_name)
     IngestionAgent(proj).run({"force": force})
+    _afficher_conso()
 
 if __name__ == "__main__":
     app()

@@ -9,7 +9,7 @@ import typer
 from pathlib import Path
 from agents.base_agent import BaseAgent
 from utils.extractors import extract_text, EXTRACTORS
-from utils.cleaners import parse_json_safe, compact_json
+from utils.cleaners import compact_json
 
 # Extensions d'images qu'on catalogue (sans les lire)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}
@@ -173,7 +173,7 @@ Produis un JSON avec cette structure :
         response = self.call_claude_continuable(
             system_prompt, user_message, max_tokens=8192, auto_continue=True
         )
-        return parse_json_safe(response)
+        return self.parse_json_response(response)
 
     # ── ÉTAPE 5 : ORCHESTRATION DES ÉTAPES ─────────────────────────
     def run(self, context: dict) -> dict:

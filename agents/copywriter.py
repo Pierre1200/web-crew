@@ -2,7 +2,7 @@ from __future__ import annotations
 import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
-from utils.cleaners import parse_json_safe, compact_json
+from utils.cleaners import compact_json
 
 
 class CopywriterAgent(BaseAgent):
@@ -102,7 +102,7 @@ Adapte librement la structure à chaque section du projet."""
             system_prompt, user_message, max_tokens=8192, auto_continue=True
         )
 
-        textes = parse_json_safe(response)
+        textes = self.parse_json_response(response)
 
         self.write_json("temp/textes.json", textes)
         typer.echo(f"✅ Textes générés → {self.project.temp_dir}/textes.json")

@@ -5,7 +5,7 @@ import typer
 from html import escape
 from agents.base_agent import BaseAgent
 from utils.project import Project
-from utils.cleaners import parse_json_safe, compact_json
+from utils.cleaners import compact_json
 
 # Marqueurs qui délimitent le bloc injecté : relancer seo-only remplace le
 # bloc existant au lieu d'empiler les balises (injection idempotente).
@@ -68,7 +68,7 @@ Produis un JSON avec cette structure exacte :
 }}"""
 
         response = self.call_claude(system_prompt, user_message, max_tokens=2048)
-        return parse_json_safe(response)
+        return self.parse_json_response(response)
 
     def _injecter_dans_html(self, meta: dict):
         """Partie mécanique : insère les balises dans le <head> du HTML. Zéro token."""

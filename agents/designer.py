@@ -57,6 +57,15 @@ class DesignerAgent(BaseAgent):
             self.logger.error(f"Séparateur {_SEP_JS} absent de la réponse — JS vide")
             typer.echo(f"   ❌ Séparateur {_SEP_JS} introuvable — JS vide")
 
+        # Post-mortem : la réponse fautive est sauvegardée telle quelle,
+        # sinon impossible de comprendre ce que le modèle a réellement renvoyé
+        if not (html and css and js):
+            self.project.logs_dir.mkdir(parents=True, exist_ok=True)
+            dump = self.project.logs_dir / "designer_reponse_invalide.txt"
+            dump.write_text(response, encoding="utf-8")
+            self.logger.error(f"Réponse brute sauvegardée : {dump}")
+            typer.echo(f"   💾 Réponse brute sauvegardée pour analyse : {dump}")
+
         html = strip_markdown_fences(html) if html else ""
         css  = strip_markdown_fences(css)  if css  else ""
         js   = strip_markdown_fences(js)   if js   else ""
