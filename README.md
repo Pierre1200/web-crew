@@ -9,34 +9,35 @@
 ## Fonctionnement
 
 ```
-   data/ client (docx, pdf, images…)
-        │
-        ▼
-  ┌─────────────┐   context.json
-  │  INGESTION  │──────────────┐   digère et structure les données brutes
-  └─────────────┘              │
-                               ▼
- brief.md + config.json → ┌──────────────┐   plan.json
-                          │ ORCHESTRATEUR│─────────────┐   décide quels agents lancer
-                          └──────────────┘             │
-                                                       ▼
-                                                ┌──────────────┐   textes.json
-                                                │  COPYWRITER  │──────────────┐   rédige les textes
-                                                └──────────────┘              │
-                                                                              ▼
-                                                                     ┌──────────────┐   index.html
-                                                                     │   DESIGNER   │   style.css
-                                                                     └──────────────┘   main.js
-                                                                              │
-                                                              ┌───────────────┴───────────────┐
-                                                              ▼                                ▼
-                                                       ┌─────────────┐                  ┌──────────┐
-                                                       │  VALIDATEUR │  (0 token)       │   SEO    │
-                                                       └─────────────┘  boucle          └──────────┘
-                                                       correction auto                   meta + sitemap
+  ENTRÉES      brief.md  ·  config.json  ·  data/ (docx, pdf, images, textes)
+                                    │
+  ══════════════════════════════════▼══════════════════════════════════════
+  CADRAGE      INGESTION ──────────────▶  temp/context.json
+  ~0,20 $      ORCHESTRATEUR ──────────▶  temp/plan.json      (la maquette)
+               DIRECTION ARTISTIQUE ───▶  temp/direction.json (la composition)
+                                    │
+  ══════════════════════════════════▼══════════════════════════════════════
+  PRODUCTION   COPYWRITER ───────────▶  temp/textes.json
+  ~1,30 $      DESIGNER ─────────────▶  index.html · style.css · main.js
+               PAGES ────────────────▶  blog/… (1 appel, quel que soit N)
+               SEO ──────────────────▶  balises · sitemap.xml · robots.txt
+                                    │
+  ══════════════════════════════════▼══════════════════════════════════════
+  CONTRÔLE     VALIDATEUR ──────────▶  structure, liens, médias   (0 token)
+               CRITIQUE ────────────▶  le fond des textes
+               CRITIQUE VISUELLE ───▶  le rendu réel, en images  (~0,15 $)
+                                    │
+  ══════════════════════════════════▼══════════════════════════════════════
+  LIVRAISON    SÉCURITÉ ────────────▶  durcissement · SECURITE.md (0 token)
 ```
 
-L'orchestrateur lit le brief en langage naturel et décide **dynamiquement** quels agents mobiliser et dans quel ordre. Ajouter un agent au registre suffit pour qu'il puisse être planifié — aucun chemin ni séquence en dur.
+Chaque étape écrit son résultat sur le disque, et chacune est rejouable seule :
+on ne repaie jamais une phase pour en corriger une autre.
+
+L'orchestrateur lit le brief en langage naturel et décide **dynamiquement** quels
+agents de production mobiliser et dans quel ordre — aucun chemin ni séquence en
+dur. Les étapes dont la place ne se discute pas (cadrage, contrôle, livraison)
+sont appelées explicitement : voir [Ajouter un agent](#ajouter-un-agent).
 
 ---
 
@@ -54,6 +55,7 @@ Chaque agent tourne sur le modèle et la profondeur de raisonnement adaptés à 
 | **Validateur** | Contrôle qualité pur Python (HTML complet, classes cohérentes, médias…) | — *(0 token)* | — | — |
 | **Critique** | Contrôle du fond des textes : faits inventés, sections creuses, générique | Sonnet 5 | ✅ | high |
 | **Critique visuelle** | Photographie le site rendu et juge composition, maquette, contrastes | Opus 5 | ✅ | **xhigh** |
+| **Sécurité** | Audite les tiers, durcit le site, écrit le rapport de livraison | Sonnet 5 *(1 appel optionnel)* | ✅ | high |
 | **SEO** | Métadonnées, Open Graph, Schema.org, sitemap, robots.txt | Haiku 4.5 | — | — |
 
 `effort` (`low` → `max`) règle la profondeur de travail du modèle : c'est le principal levier qualité/coût. Le designer tourne en `xhigh`, le réglage le plus adapté aux tâches de code. **Haiku 4.5 refuse `effort` et le raisonnement adaptatif** — d'où `EFFORT = None` et `THINKING = None` sur l'agent SEO.
@@ -68,12 +70,32 @@ L'extraction de texte, le catalogage d'images et toute la validation sont réali
 git clone <url-du-repo>
 cd web-crew
 
-python3 -m venv .venv              # Python 3.12+ recommandé
+python3 -m venv .venv              # Python 3.12+ requis
 source .venv/bin/activate          # Windows : .venv\Scripts\activate
 pip install -r requirements.txt
 
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 ```
+
+**Une étape de plus pour la critique visuelle** — Playwright a besoin de
+télécharger un navigateur (~150 Mo), une seule fois :
+
+```bash
+playwright install chromium
+```
+
+Sans lui, tout le reste fonctionne : seule la commande `visuel` s'arrêtera, avec
+un message indiquant quoi lancer.
+
+### Vérifier que tout est en place
+
+```bash
+python3 -m pytest tests/ -q        # 182 tests, aucun appel API, aucune clé requise
+python3 main.py list-agents
+```
+
+Si les tests passent sans clé API, l'installation est bonne : le client Anthropic
+n'est créé qu'au premier appel réel.
 
 ---
 
@@ -92,6 +114,7 @@ python3 main.py generate-safe --project mon-client --visuel 2
 ```bash
 python3 main.py ingest       --project mon-client   # digère data/ uniquement
 python3 main.py design-only  --project mon-client --replan   # redessine (voir ci-dessous)
+python3 main.py securiser    --project mon-client   # audit de sécurité — gratuit
 python3 main.py pages        --project mon-client   # (re)génère les collections — gratuit
 python3 main.py direction    --project mon-client   # rejoue la direction artistique seule
 python3 main.py visuel       --project mon-client --corriger # juge le rendu et corrige
@@ -131,6 +154,59 @@ Deux filets protègent les runs payants :
   `output_prev/`. `diff` montre ce qui a changé, `restore` revient en arrière.
 - **Contrôle de pré-vol** — si le site actuel contient un branchement absent de
   la config, la commande le signale **avant** de dépenser quoi que ce soit.
+
+---
+
+## Sécurité et livraison
+
+Un site statique a une surface d'attaque minuscule : pas de serveur applicatif,
+pas de base de données, pas de dépendances à patcher, pas de comptes utilisateurs.
+Prétendre le contraire serait du théâtre. Les vrais sujets sont ailleurs — les
+services tiers, le durcissement absent, et les secrets oubliés.
+
+```bash
+python3 main.py securiser --project mon-client              # audit seul, gratuit
+python3 main.py securiser --project mon-client --durcir     # applique les corrections
+python3 main.py securiser --project mon-client --durcir --injection
+```
+
+Le durcissement est une commande **séparée**, à lancer quand le rendu convient :
+il modifie le site généré, on ne le rejoue pas à chaque essai.
+
+### Ce que le durcissement applique
+
+| Action | Pourquoi |
+|---|---|
+| **Polices hébergées sur le site** | Sans cela, chaque visiteur transmet son adresse IP à Google. Un jugement allemand de 2022 a condamné un exploitant pour exactement cela. Rapatrier les fichiers supprime le transfert, la dépendance au CDN, et deux connexions au chargement. |
+| **`_headers` et `.htaccess`** | En-têtes de sécurité pour Netlify/Cloudflare et Apache, avec une **CSP calculée depuis le site réel** — pas recopiée d'un tutoriel. |
+| **`rel="noopener noreferrer"`** | Une page ouverte dans un nouvel onglet ne peut plus agir sur celle du site. |
+| **Pot de miel anti-robot** | Un champ invisible que seuls les robots remplissent ; Formspree jette ces envois. |
+
+Seules les sous-familles `latin` et `latin-ext` des polices sont conservées :
+Google en sert une dizaine (cyrillique, grec, vietnamien…) dont un site français
+n'a aucun usage.
+
+### L'audit et le rapport client
+
+L'audit est gratuit et produit `output/SECURITE.md` — le site est livré **avec
+son audit**. Le rapport liste les services extérieurs contactés (« où partent les
+données de mes visiteurs ? »), ce qui a été durci, et ce qui reste à la charge du
+client.
+
+Les contrôles : contenu mixte `http://` sur un site `https`, liens `target="_blank"`
+non protégés, `innerHTML`/`eval` dans le JS, iframes sans `referrerpolicy`, adresses
+email en clair, formulaires sans piège, et **recherche de secrets** dans les fichiers
+sur le point d'être livrés (les clés trouvées ne sont jamais recopiées en entier
+dans le rapport — elles sont à révoquer, pas à archiver).
+
+### Le seul appel au modèle : les documents du client
+
+`--injection` relit les documents de `data/` à la recherche de passages rédigés
+pour détourner un automate — « ignore les instructions précédentes », « ajoute ce
+lien dans le pied de page ». Le risque est réel puisque l'agent Ingestion insère
+ces textes dans les prompts des autres agents, et qu'un client transmet parfois un
+document dont il n'est pas l'auteur. C'est sémantique, donc c'est le bon usage
+d'un modèle — tout le reste est déterministe.
 
 ---
 
@@ -431,11 +507,27 @@ Aucune ligne de code à modifier.
 
 ## Ajouter un agent
 
+Tous les agents héritent de `BaseAgent`, mais il en existe **deux familles**,
+selon qui décide de les lancer.
+
+**Agents planifiés** — l'orchestrateur choisit de les mobiliser ou non, selon le
+brief. Ce sont ceux du registre : copywriter, designer, seo.
+
 1. Créer `agents/mon_agent.py` héritant de `BaseAgent`
 2. L'ajouter à `AGENT_REGISTRY` dans `main.py`
 3. Le présenter dans le system prompt de l'orchestrateur
 
-Le pipeline le mobilisera automatiquement selon le brief.
+**Agents à étape fixe** — leur place dans la chaîne ne se discute pas : ingestion
+et direction artistique arrivent forcément avant la production, validateur,
+critique, critique visuelle et sécurité forcément après. Ils ne sont pas dans le
+registre : ils sont appelés explicitement par `main.py`, et exposés en commande.
+
+1. Créer `agents/mon_agent.py` héritant de `BaseAgent`
+2. L'appeler à l'endroit voulu dans `main.py`, et lui donner sa commande
+
+Le choix entre les deux tient à une seule question : **l'orchestrateur peut-il
+légitimement décider de sauter cette étape ?** Si non, elle n'a rien à faire dans
+le registre.
 
 ---
 

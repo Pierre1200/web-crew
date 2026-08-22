@@ -25,9 +25,10 @@ from __future__ import annotations
 import re
 import shutil
 import struct
-import unicodedata
 from math import gcd
 from pathlib import Path
+
+from utils.cleaners import slugifier
 
 EXTENSIONS_IMAGES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".avif"}
 
@@ -174,18 +175,9 @@ def nom_web(nom: str) -> str:
     évite les URL encodées illisibles et les surprises selon le serveur.
     """
     chemin = Path(nom)
-    base, extension = chemin.stem, chemin.suffix.lower()
-
-    # Les ligatures ne se décomposent pas en NFKD : sans ça « œuvre » perdrait
-    # son « o » et deviendrait « uvre ».
-    for ligature, remplacement in (("œ", "oe"), ("Œ", "OE"),
-                                   ("æ", "ae"), ("Æ", "AE"), ("ß", "ss")):
-        base = base.replace(ligature, remplacement)
-
-    base = unicodedata.normalize("NFKD", base)
-    base = base.encode("ascii", "ignore").decode("ascii")
-    base = re.sub(r"[^a-zA-Z0-9]+", "-", base).strip("-").lower()
-    return f"{base or 'image'}{extension}"
+    # La normalisation vit dans utils/cleaners : un seul endroit à corriger le
+    # jour où un caractère exotique passe entre les mailles.
+    return f"{slugifier(chemin.stem) or 'image'}{chemin.suffix.lower()}"
 
 
 def _ratio_lisible(largeur: int, hauteur: int) -> str:

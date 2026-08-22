@@ -668,6 +668,60 @@ def visuel(
 
 
 @app.command()
+def securiser(
+    project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet"),
+    durcir: bool = typer.Option(
+        False, "--durcir",
+        help="Applique les corrections : polices auto-hébergées, en-têtes, pièges à robots",
+    ),
+    injection: bool = typer.Option(
+        False, "--injection",
+        help="Analyse les documents de data/ à la recherche d'instructions cachées (1 appel)",
+    ),
+    sans_polices: bool = typer.Option(
+        False, "--sans-polices",
+        help="Ne rapatrie pas les polices Google (le durcissement a besoin du réseau)",
+    ),
+    observation: bool = typer.Option(
+        False, "--observation",
+        help="Pose la CSP en mode observation : elle signale sans rien bloquer",
+    ),
+):
+    """Audite et durcit le site avant livraison — écrit output/SECURITE.md.
+
+    Sans option, l'audit est **gratuit** : inventaire des services extérieurs
+    contactés, constats de sécurité, recherche de secrets, et rapport livrable.
+
+    `--durcir` corrige (zéro token, mais accède une fois au réseau pour
+    rapatrier les polices). À lancer quand le rendu te convient, pas à chaque
+    essai : le durcissement modifie le site généré.
+
+    `--injection` ajoute le seul appel au modèle : la relecture des documents
+    du client à la recherche de consignes destinées à détourner un automate.
+    """
+    from agents.securite import SecuriteAgent
+
+    proj = _load_project(project_name)
+    typer.echo(f"\n🔒 Sécurité de {proj.name}...\n")
+
+    if durcir:
+        _sauvegarder(proj)
+
+    SecuriteAgent(proj).run({
+        "durcir": durcir,
+        "polices": not sans_polices,
+        "injection": injection,
+        "report_only": observation,
+    })
+
+    if durcir:
+        typer.echo("\n   Comparer : webcrew diff · revenir en arrière : webcrew restore")
+        typer.echo("   ⚠️  Vérifie la console du navigateur après mise en ligne : "
+                   "une CSP trop stricte se voit là.")
+    _afficher_conso()
+
+
+@app.command()
 def list_agents():
     """Affiche les agents disponibles dans le registre."""
     typer.echo("Agents dans le registre :")

@@ -32,10 +32,11 @@ par construction plutôt que par vigilance.
 """
 from __future__ import annotations
 import re
-import unicodedata
 from datetime import date, datetime
 from html import escape
 from pathlib import Path
+
+from utils.cleaners import slugifier as _slugifier
 
 EXTENSIONS_CONTENU = {".txt", ".md"}
 
@@ -49,23 +50,16 @@ _MOIS_FR = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet",
 # Vitesse de lecture couramment retenue pour un adulte en français.
 _MOTS_PAR_MINUTE = 200
 
-_LIGATURES = (("œ", "oe"), ("Œ", "OE"), ("æ", "ae"), ("Æ", "AE"), ("ß", "ss"))
-
 
 # ── OUTILS DE TEXTE ────────────────────────────────────────────────────
 
 def slugifier(texte: str) -> str:
-    """« D'où vient le mot bougnat ? » → « d-ou-vient-le-mot-bougnat ».
+    """Identifiant d'URL, avec un repli lisible si le texte ne donne rien.
 
-    Les ligatures sont traitées avant la normalisation Unicode : NFKD ne
-    décompose pas « œ », qui perdrait sinon son « o ».
+    La normalisation elle-même vit dans utils/cleaners : ici on ne fait
+    qu'ajouter la garantie « jamais vide », propre aux adresses de pages.
     """
-    for ligature, remplacement in _LIGATURES:
-        texte = texte.replace(ligature, remplacement)
-    texte = unicodedata.normalize("NFKD", texte)
-    texte = texte.encode("ascii", "ignore").decode("ascii")
-    texte = re.sub(r"[^a-zA-Z0-9]+", "-", texte).strip("-").lower()
-    return texte or "page"
+    return _slugifier(texte) or "page"
 
 
 def _normaliser_cle(cle: str) -> str:

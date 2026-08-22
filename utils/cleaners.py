@@ -1,9 +1,29 @@
 """
-Fonctions utilitaires de nettoyage des réponses de l'API Claude.
+Fonctions utilitaires de nettoyage et de normalisation de texte.
 Réutilisables par tous les agents.
 """
 import json
 import re
+import unicodedata
+
+# Les ligatures ne se décomposent pas en NFKD : sans ce passage préalable,
+# « œuvre » perdrait son « o » et deviendrait « uvre ».
+_LIGATURES = (("œ", "oe"), ("Œ", "OE"), ("æ", "ae"), ("Æ", "AE"), ("ß", "ss"))
+
+
+def slugifier(texte: str) -> str:
+    """Transforme un texte en identifiant utilisable dans une URL ou un nom de
+    fichier : « D'où vient le mot « bougnat » ? » → « d-ou-vient-le-mot-bougnat ».
+
+    Point d'entrée UNIQUE de la normalisation : les noms de fichiers images et
+    les adresses de pages passent par ici. Dupliquer cette logique, c'est
+    garantir qu'un correctif appliqué d'un côté manquera de l'autre.
+    """
+    for ligature, remplacement in _LIGATURES:
+        texte = texte.replace(ligature, remplacement)
+    texte = unicodedata.normalize("NFKD", texte)
+    texte = texte.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-zA-Z0-9]+", "-", texte).strip("-").lower()
 
 
 def compact_json(data) -> str:

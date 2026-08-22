@@ -24,6 +24,13 @@ FIXABLE_TYPES = {
 class ValidatorAgent(BaseAgent):
     """Inspecte le site généré et détecte les problèmes — sans appeler l'IA.
 
+    ⚠️ CET AGENT NE CONTACTE JAMAIS L'API. Il hérite bien de MODEL et EFFORT de
+    BaseAgent, mais ces réglages ne servent à rien ici : aucun appel n'est émis,
+    et la clé API n'est même pas requise pour le faire tourner (le client
+    Anthropic est créé paresseusement, au premier appel réel). Si tu ajoutes un
+    jour un appel dans cette classe, choisis son modèle explicitement plutôt que
+    d'hériter d'Opus 5 sans t'en apercevoir.
+
     Chaque problème est un dict structuré, jamais une simple phrase :
         {"type": str, "niveau": "erreur"|"warning", "message": str, ...extras}
 
