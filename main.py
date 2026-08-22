@@ -1,3 +1,5 @@
+import json
+
 import typer
 from dotenv import load_dotenv
 
@@ -158,6 +160,73 @@ def _cadrer(proj: Project) -> dict:
     return plan
 
 
+def _generer_collections(proj: Project, designer, forcer_gabarits: bool = False) -> int:
+    """Génère les pages de toutes les collections déclarées.
+
+    Le coût est indépendant du nombre de contenus : les gabarits sont produits
+    une fois par collection, mis en cache dans temp/, puis remplis par Python.
+    Corriger une faute de frappe dans un article et régénérer ne coûte donc
+    RIEN — c'est ce qui rend un blog viable sur un site généré.
+    """
+    from utils.pages import (
+        collections_declarees, lire_collection, rendre_collection, rendre_flux,
+    )
+
+    collections = collections_declarees(proj.load_config())
+    if not collections:
+        return 0
+
+    site_url = (proj.load_config().get("site", {}) or {}).get("url", "")
+    total_pages = 0
+
+    for collection in collections:
+        contenus = lire_collection(proj, collection)
+        dossier_source = proj.data_dir / collection["source"]
+
+        if not contenus:
+            typer.echo(
+                f"   ⚠️  Collection « {collection['titre']} » vide — "
+                f"dépose des fichiers .txt dans {dossier_source}/"
+            )
+            continue
+
+        typer.echo(
+            f"\n📄 Collection « {collection['titre']} » : {len(contenus)} contenu(s)"
+        )
+
+        cache = proj.temp_dir / f"gabarits_{collection['id']}.json"
+        if cache.exists() and not forcer_gabarits:
+            gabarits = json.loads(cache.read_text(encoding="utf-8"))
+            typer.echo("   → Gabarits réutilisés depuis le cache (zéro token)")
+        else:
+            gabarits = designer.generer_gabarits(collection, contenus)
+            cache.write_text(
+                json.dumps(gabarits, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+        fichiers = rendre_collection(collection, contenus, gabarits)
+        if collection["flux"]:
+            fichiers.append(
+                (f"{collection['url']}/feed.xml", rendre_flux(collection, contenus, site_url))
+            )
+
+        for chemin_relatif, contenu_html in fichiers:
+            cible = proj.output_dir / chemin_relatif
+            cible.parent.mkdir(parents=True, exist_ok=True)
+            cible.write_text(contenu_html, encoding="utf-8")
+
+        typer.echo(f"   ✅ {len(fichiers)} fichier(s) → {proj.output_dir}/{collection['url']}/")
+        total_pages += len(contenus)
+
+    # Le sitemap est produit par l'agent SEO, qui passe AVANT les collections :
+    # on le rejoue pour que les nouvelles pages y figurent (zéro token).
+    if total_pages and (proj.output_dir / "sitemap.xml").exists():
+        from agents.seo import generer_sitemap
+        typer.echo(f"   🗺  sitemap.xml mis à jour ({generer_sitemap(proj)} pages)")
+
+    return total_pages
+
+
 def _critique_visuelle(proj: Project, designer, tours: int, corriger: bool = True) -> dict:
     """Boucle « photographie → juge → corrige » sur le site rendu.
 
@@ -243,7 +312,10 @@ def generate(
     _run_ingestion(proj)
 
     plan = _cadrer(proj)
-    _run_pipeline(proj, plan)
+    instances = _run_pipeline(proj, plan)
+
+    designer = instances.get("designer") or DesignerAgent(proj)
+    _generer_collections(proj, designer)
 
     typer.echo(f"\n✅ Pipeline complet — ouvre {proj.output_dir}/index.html")
     _valider_en_fin_de_run(proj)
@@ -280,6 +352,7 @@ def generate_safe(
 
     # Le designer est nécessaire pour la méthode fix() — on le récupère depuis les instances
     designer = instances.get("designer") or DesignerAgent(proj)
+    _generer_collections(proj, designer)
     validator = ValidatorAgent(proj)
     output_dir = proj.output_dir
 
@@ -490,6 +563,39 @@ def critique(
     proj = _load_project(project_name)
     typer.echo(f"\n🧐 Critique de {proj.name}...\n")
     CritiqueAgent(proj).run({})
+    _afficher_conso()
+
+
+@app.command()
+def pages(
+    project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet"),
+    regenerer_gabarits: bool = typer.Option(
+        False, "--gabarits",
+        help="Redessine les gabarits (sinon ils sont réutilisés depuis le cache)",
+    ),
+):
+    """Génère les pages des collections (blog, réalisations…).
+
+    Sans --gabarits, l'opération est **gratuite** : les gabarits déjà dessinés
+    sont réutilisés et Python se contente de les remplir. C'est la commande à
+    relancer après avoir écrit ou corrigé un texte dans data/.
+    """
+    proj = _load_project(project_name)
+    typer.echo(f"\n📄 Pages de {proj.name}...")
+
+    _sauvegarder(proj)
+    total = _generer_collections(proj, DesignerAgent(proj), regenerer_gabarits)
+
+    if total == 0:
+        typer.echo(
+            "\nℹ️  Aucune collection déclarée. Ajoute dans config.json :\n"
+            '   "site": {"collections": [{"id": "blog", "titre": "Le blog", '
+            '"source": "articles"}]}\n'
+            "   puis dépose tes textes dans data/articles/."
+        )
+    else:
+        typer.echo(f"\n✅ {total} page(s) de contenu générée(s)")
+        _valider_en_fin_de_run(proj)
     _afficher_conso()
 
 

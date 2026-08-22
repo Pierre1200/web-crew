@@ -13,6 +13,52 @@ _SEO_DEBUT = "<!-- web-crew:seo -->"
 _SEO_FIN   = "<!-- /web-crew:seo -->"
 
 
+def generer_sitemap(project) -> int:
+    """Recense TOUTES les pages HTML du site dans sitemap.xml. Zéro token.
+
+    Fonction de module et non méthode : le sitemap doit être rejoué après la
+    génération des collections, qui arrive APRÈS l'agent SEO dans le pipeline.
+    Sans ça, un blog de trente articles resterait invisible des moteurs.
+
+    L'accueil garde la priorité 1.0, les pages de liste 0.8, les contenus 0.6 :
+    une hiérarchie qui reflète l'importance réelle des pages.
+    """
+    output_dir = project.output_dir
+    if not output_dir.is_dir():
+        return 0
+
+    pages = sorted(
+        p.relative_to(output_dir).as_posix()
+        for p in output_dir.rglob("*.html")
+    )
+
+    entrees = []
+    for page in pages:
+        if page == "index.html":
+            priorite, frequence = "1.0", "monthly"
+        elif page.endswith("/index.html"):
+            priorite, frequence = "0.8", "weekly"
+        else:
+            priorite, frequence = "0.6", "yearly"
+        url = (project.load_config().get("site", {}) or {}).get("url", "").rstrip("/")
+        entrees.append(
+            "  <url>\n"
+            f"    <loc>{url}/{page}</loc>\n"
+            f"    <changefreq>{frequence}</changefreq>\n"
+            f"    <priority>{priorite}</priority>\n"
+            "  </url>"
+        )
+
+    sitemap = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(entrees) + "\n"
+        "</urlset>\n"
+    )
+    (output_dir / "sitemap.xml").write_text(sitemap, encoding="utf-8")
+    return len(pages)
+
+
 class SeoAgent(BaseAgent):
     """Génère les métadonnées SEO et les injecte dans le HTML. Agent hybride."""
 
@@ -132,26 +178,14 @@ Produis un JSON avec cette structure exacte :
         """Génère sitemap.xml et robots.txt. Mécanique, zéro token."""
         typer.echo("   → Génération sitemap.xml et robots.txt...")
 
-        output_dir = self.project.output_dir
-
         robots = """User-agent: *
 Allow: /
 
 Sitemap: sitemap.xml
 """
-        (output_dir / "robots.txt").write_text(robots, encoding="utf-8")
-
-        sitemap = """<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>/index.html</loc>
-    <changefreq>monthly</changefreq>
-    <priority>1.0</priority>
-  </url>
-</urlset>
-"""
-        (output_dir / "sitemap.xml").write_text(sitemap, encoding="utf-8")
-        typer.echo("   ✅ sitemap.xml et robots.txt créés")
+        (self.project.output_dir / "robots.txt").write_text(robots, encoding="utf-8")
+        nb = generer_sitemap(self.project)
+        typer.echo(f"   ✅ robots.txt et sitemap.xml ({nb} page(s))")
 
     def run(self, context: dict) -> dict:
         typer.echo("🔍 SEO : optimisation du site...")

@@ -245,6 +245,59 @@ def test_image_de_fond_css_verifiee_aussi(proj):
     assert any("assets/fond.jpg" in p["message"] for p in pbs)
 
 
+def _page_collection(proj, chemin, html):
+    cible = proj.output_dir / chemin
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    cible.write_text(html, encoding="utf-8")
+
+
+PAGE_BLOG = """<!DOCTYPE html><html lang="fr"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../style.css"></head>
+<body><h1>Mon article</h1></body></html>"""
+
+
+def test_page_de_collection_valide_ne_signale_rien(proj):
+    _site(proj)
+    _page_collection(proj, "blog/article.html", PAGE_BLOG)
+    result = ValidatorAgent(proj).run({})
+    assert "lien_page_casse" not in _types(result)
+
+
+def test_lien_casse_dans_une_page_de_collection(proj):
+    """Le préfixe ../ oublié : la page s'afficherait sans aucun style."""
+    _site(proj)
+    _page_collection(proj, "blog/article.html", PAGE_BLOG.replace("../style.css", "style.css"))
+    result = ValidatorAgent(proj).run({})
+    pbs = [p for p in result["problemes"] if p["type"] == "lien_page_casse"]
+    assert len(pbs) == 1
+    assert "blog/article.html" in pbs[0]["message"]
+    assert result["valide"] is False
+
+
+def test_liens_externes_et_ancres_ignores(proj):
+    _site(proj)
+    _page_collection(proj, "blog/a.html", PAGE_BLOG.replace(
+        "<h1>Mon article</h1>",
+        '<h1>x</h1><a href="https://exemple.fr">e</a><a href="#haut">h</a>'
+        '<a href="mailto:a@b.fr">m</a>',
+    ))
+    result = ValidatorAgent(proj).run({})
+    assert "lien_page_casse" not in _types(result)
+
+
+def test_collection_declaree_mais_non_generee(proj):
+    (proj.root / "config.json").write_text(
+        json.dumps({"site": {"collections": [{"id": "blog", "titre": "Le blog"}]}}),
+        encoding="utf-8",
+    )
+    _site(proj)
+    result = ValidatorAgent(proj).run({})
+    pbs = [p for p in result["problemes"] if p["type"] == "collection_vide"]
+    assert len(pbs) == 1
+    assert result["valide"] is True  # avertissement, pas blocage
+
+
 def _config_medias(proj, items):
     (proj.root / "config.json").write_text(
         json.dumps({"site": {"medias": {"items": items}}}, ensure_ascii=False),

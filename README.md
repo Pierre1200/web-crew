@@ -92,6 +92,7 @@ python3 main.py generate-safe --project mon-client --visuel 2
 ```bash
 python3 main.py ingest       --project mon-client   # digère data/ uniquement
 python3 main.py design-only  --project mon-client --replan   # redessine (voir ci-dessous)
+python3 main.py pages        --project mon-client   # (re)génère les collections — gratuit
 python3 main.py direction    --project mon-client   # rejoue la direction artistique seule
 python3 main.py visuel       --project mon-client --corriger # juge le rendu et corrige
 python3 main.py validate     --project mon-client   # validateur seul (0 token)
@@ -130,6 +131,75 @@ Deux filets protègent les runs payants :
   `output_prev/`. `diff` montre ce qui a changé, `restore` revient en arrière.
 - **Contrôle de pré-vol** — si le site actuel contient un branchement absent de
   la config, la commande le signale **avant** de dépenser quoi que ce soit.
+
+---
+
+## Pages multiples — blog, réalisations, services…
+
+Un site peut porter des **collections** : des ensembles de pages produites à
+partir de textes écrits par le client. Un blog en est le cas typique, mais le
+mécanisme est générique (portfolio, fiches services, actualités).
+
+```json
+"site": {
+  "collections": [
+    { "id": "blog", "titre": "Le blog", "source": "articles",
+      "chapeau": "Les histoires qui ne tiennent pas en trois minutes de vidéo.",
+      "flux": true }
+  ]
+}
+```
+
+Le client dépose ses textes dans `data/articles/`, un fichier `.txt` par page :
+
+```
+Titre: D'où vient le mot « bougnat » ?
+Chapo: Derrière le nom, il y a un métier et une migration.
+Date: 2026-08-14
+Couverture: charbon.jpg
+Statut: publie
+
+Le mot « bougnat » désigne à Paris les Auvergnats venus s'y installer.
+
+## Du charbon au comptoir
+
+Les marchands livraient les immeubles, étage par étage.
+
+> Le comptoir et le charbon, dans la même boutique.
+```
+
+**Ce n'est pas du Markdown, volontairement.** Une ligne vide sépare deux
+paragraphes, `## ` ouvre un sous-titre, `> ` une citation. Le client n'a aucune
+syntaxe à apprendre — et comme le crew n'insère jamais de HTML écrit par lui
+(tout est échappé avant insertion), l'injection est impossible **par
+construction** plutôt que par vigilance.
+
+Le format est permissif : sans en-tête, le titre vient du nom du fichier et la
+date de sa dernière modification. `Statut: brouillon` garde une page hors ligne
+le temps de la finir.
+
+### Le coût ne dépend pas du nombre de pages
+
+Le modèle produit **un gabarit par collection** — une page de liste, une page de
+contenu, et le balisage des paragraphes, sous-titres, citations et images. Python
+le remplit ensuite pour chaque texte. Cinquante articles coûtent donc **un seul
+appel**, et sont cohérents entre eux par construction.
+
+Les gabarits sont mis en cache dans `temp/`. Corriger une faute de frappe dans un
+article et régénérer le site est **gratuit** :
+
+```bash
+python3 main.py pages --project mon-client              # gratuit (gabarits en cache)
+python3 main.py pages --project mon-client --gabarits   # redessine les gabarits
+```
+
+Chaque collection reçoit aussi son **flux RSS**, et le `sitemap.xml` est
+recalculé pour lister toutes les pages — sans quoi un blog de trente articles
+resterait invisible des moteurs de recherche.
+
+Le validateur contrôle ensuite les pages secondaires : liens cassés résolus
+**depuis le dossier de la page** (c'est là que se glissent les préfixes `../`
+oubliés), `<h1>` et meta viewport présents, collections déclarées mais vides.
 
 ---
 
@@ -271,6 +341,7 @@ projects/mon-client/
 ├── brief.md        # le cahier des charges en langage naturel
 ├── config.json     # config technique (sections, style, SEO, client)
 ├── data/           # données brutes fournies par le client (docx, pdf, images)
+│   └── articles/   # un .txt par page de collection (blog, réalisations…)
 ├── output/         # site généré (HTML/CSS/JS) — JETABLE          ← non versionné
 ├── output_prev/    # sauvegarde du run précédent (diff / restore) ← non versionné
 ├── temp/           # fichiers d'échange inter-agents              ← non versionné

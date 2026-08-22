@@ -5,12 +5,37 @@ from utils.project import Project
 from utils.cleaners import clean_code_output, extract_css_classes, strip_markdown_fences, compact_json
 from utils.embeds import construire_manifeste
 from utils.images import preparer_assets, images_lourdes
+from utils.pages import marqueurs_presents
 
 _FORM_KEYWORDS = {"contact", "newsletter", "reserver", "formulaire", "rdv", "inscription"}
 
 _SEP_HTML = "===HTML==="
 _SEP_CSS  = "===CSS==="
 _SEP_JS   = "===JS==="
+
+# Gabarits d'une collection : le modèle les produit UNE fois, Python les
+# remplit pour chaque contenu. C'est ce qui permet à cinquante articles de
+# coûter un appel au lieu de cinquante, et d'être identiques par construction.
+_SEP_GABARITS = (
+    ("liste",       "===PAGE_LISTE==="),
+    ("item",        "===ITEM_LISTE==="),
+    ("page",        "===PAGE_CONTENU==="),
+    ("paragraphe",  "===BLOC_PARAGRAPHE==="),
+    ("sous_titre",  "===BLOC_SOUS_TITRE==="),
+    ("citation",    "===BLOC_CITATION==="),
+    ("image",       "===BLOC_IMAGE==="),
+)
+
+# Marqueurs sans lesquels un gabarit est inexploitable.
+_MARQUEURS_REQUIS = {
+    "liste":      {"items"},
+    "item":       {"url", "titre"},
+    "page":       {"titre", "corps"},
+    "paragraphe": {"texte"},
+    "sous_titre": {"texte"},
+    "citation":   {"texte"},
+    "image":      {"src"},
+}
 
 # Repli quand aucune direction artistique n'a été arrêtée : des principes
 # généraux, valables pour tout projet. Dès qu'une direction existe, elle les
@@ -648,6 +673,141 @@ Cible UNIQUEMENT les ids et classes présents dans ce HTML :
             return True
         self.logger.error("JS toujours déséquilibré après regenerate_js")
         return False
+
+    def _parse_gabarits(self, reponse: str) -> dict:
+        """Découpe la réponse multi-gabarits et vérifie qu'elle est exploitable."""
+        gabarits, manquants = {}, []
+
+        for i, (cle, marqueur) in enumerate(_SEP_GABARITS):
+            debut = reponse.find(marqueur)
+            if debut == -1:
+                manquants.append(marqueur)
+                continue
+            debut += len(marqueur)
+            # jusqu'au marqueur suivant présent dans la réponse, ou la fin
+            fin = len(reponse)
+            for _, suivant in _SEP_GABARITS[i + 1:]:
+                position = reponse.find(suivant, debut)
+                if position != -1:
+                    fin = position
+                    break
+            gabarits[cle] = strip_markdown_fences(reponse[debut:fin].strip())
+
+        if manquants:
+            raise ValueError(
+                f"Gabarits incomplets — séparateur(s) absent(s) : {', '.join(manquants)}"
+            )
+
+        for cle, requis in _MARQUEURS_REQUIS.items():
+            absents = requis - marqueurs_presents(gabarits[cle])
+            if absents:
+                raise ValueError(
+                    f"Gabarit '{cle}' inutilisable — marqueur(s) manquant(s) : "
+                    + ", ".join(f"{{{{{m}}}}}" for m in sorted(absents))
+                )
+
+        return gabarits
+
+    def generer_gabarits(self, collection: dict, contenus: list[dict]) -> dict:
+        """Produit les gabarits d'une collection — UN SEUL appel, quel que soit
+        le nombre de contenus.
+
+        Le modèle ne voit jamais les textes du client : il dessine des
+        emplacements. Python les remplit ensuite en échappant tout, ce qui rend
+        l'injection impossible par construction — et rend le coût indépendant
+        du nombre de pages.
+        """
+        typer.echo(f"   → Gabarits de la collection « {collection['titre']} »...")
+
+        css_path = self.project.output_dir / "style.css"
+        classes = ", ".join(extract_css_classes(css_path.read_text(encoding="utf-8"))) \
+            if css_path.exists() else ""
+
+        # L'en-tête et le pied de l'accueil servent de référence : les pages de
+        # collection doivent en hériter, sinon le site se disloque page à page.
+        index_path = self.project.output_dir / "index.html"
+        extrait_accueil = ""
+        if index_path.exists():
+            html = index_path.read_text(encoding="utf-8")
+            extrait_accueil = (
+                "\nStructure de la page d'accueil, dont les pages de collection "
+                "doivent reprendre l'en-tête et le pied à l'identique :\n"
+                + html[:4000]
+            )
+
+        try:
+            plan = self.read_json("temp/plan.json")
+        except (OSError, ValueError):
+            plan = {}
+        bloc_direction, _ = self._bloc_direction()
+
+        exemples = "\n".join(
+            f"  - {c['titre']} ({c['date_fr']}, {c['temps_lecture']} min)"
+            for c in contenus[:5]
+        )
+
+        system_prompt = """\
+Tu es intégrateur front-end. Tu produis des GABARITS de pages : du HTML où les
+contenus sont remplacés par des marqueurs {{nom}} qu'un programme remplira.
+
+Tu ne rédiges aucun texte de contenu : tu dessines des emplacements.
+Réponds uniquement avec les blocs séparés demandés, sans aucune explication."""
+
+        user_message = f"""{self.cahier_des_charges(plan)}{bloc_direction}
+
+Produis les gabarits de la collection « {collection['titre']} » d'un site déjà \
+existant. Le CSS est déjà écrit : réutilise ses classes, n'en invente pas.
+
+Classes CSS disponibles :
+{classes}
+{extrait_accueil}
+
+Contenus qui rempliront ces gabarits (à titre indicatif, {len(contenus)} au total) :
+{exemples}
+
+Réponds avec EXACTEMENT ces sept blocs, dans cet ordre, sans texte entre eux :
+
+===PAGE_LISTE===
+Page HTML complète (<!DOCTYPE html> à </html>) listant les contenus.
+Marqueurs : {{{{titre_collection}}}}, {{{{chapeau}}}}, {{{{nombre}}}}, \
+{{{{items}}}} (obligatoire — la liste rendue), {{{{racine}}}}, {{{{url_accueil}}}}
+===ITEM_LISTE===
+UN élément de la liste (souvent un <li> ou un <article>).
+Marqueurs : {{{{url}}}} (obligatoire), {{{{titre}}}} (obligatoire), {{{{chapo}}}}, \
+{{{{date_fr}}}}, {{{{temps_lecture}}}}, {{{{couverture}}}}
+===PAGE_CONTENU===
+Page HTML complète d'un contenu.
+Marqueurs : {{{{titre}}}} (obligatoire), {{{{corps}}}} (obligatoire — le texte rendu), \
+{{{{chapo}}}}, {{{{date_fr}}}}, {{{{temps_lecture}}}}, {{{{couverture}}}}, \
+{{{{url_liste}}}}, {{{{url_accueil}}}}, {{{{racine}}}}
+===BLOC_PARAGRAPHE===
+Le balisage d'un paragraphe. Marqueur : {{{{texte}}}}
+===BLOC_SOUS_TITRE===
+Le balisage d'un sous-titre. Marqueur : {{{{texte}}}}
+===BLOC_CITATION===
+Le balisage d'une citation. Marqueur : {{{{texte}}}}
+===BLOC_IMAGE===
+Le balisage d'une image de couverture. Marqueurs : {{{{src}}}}, {{{{alt}}}}
+
+RÈGLES :
+- Ces pages vivent dans un SOUS-DOSSIER : tous les liens vers les fichiers du \
+site sont préfixés par {{{{racine}}}} — <link rel="stylesheet" \
+href="{{{{racine}}}}style.css">, <script src="{{{{racine}}}}main.js"></script>.
+- Chaque page porte <meta charset="UTF-8">, la meta viewport, et un seul <h1>.
+- Reprends l'en-tête et le pied de l'accueil à l'identique, en corrigeant leurs \
+liens avec {{{{racine}}}}. Ajoute un lien de retour vers la liste ou l'accueil.
+- Aucune balise <style>, aucun style inline : tout doit passer par les classes \
+existantes. Si une classe manque vraiment, nomme-la en respectant la convention \
+BEM du CSS existant.
+- La liste doit rester lisible avec un seul contenu comme avec cinquante.
+- N'écris AUCUN texte de contenu réel : uniquement des marqueurs."""
+
+        reponse = self.call_claude_continuable(system_prompt, user_message, max_tokens=32000)
+        gabarits = self._parse_gabarits(reponse)
+        self.logger.info(
+            f"Gabarits générés pour « {collection['id']} » : {sorted(gabarits)}"
+        )
+        return gabarits
 
     def appliquer_correctifs_css(self, problemes: list) -> int:
         """Applique les corrections CSS proposées par la critique visuelle.

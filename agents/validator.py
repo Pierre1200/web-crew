@@ -7,6 +7,7 @@ from utils.project import Project
 from utils.cleaners import extract_css_classes
 from utils.embeds import construire_manifeste
 from utils.images import EXTENSIONS_IMAGES
+from utils.pages import collections_declarees
 
 # Classes ajoutées dynamiquement par main.js — absentes du CSS statique, c'est normal
 _JS_DYNAMIC_CLASSES = {"visible", "scrolled", "open", "active", "loaded", "is-open", "is-active"}
@@ -281,6 +282,72 @@ class ValidatorAgent(BaseAgent):
                 "a fourni ses propres visuels — à remplacer avant livraison",
             )
 
+    def check_pages_collections(self):
+        """Contrôle les pages secondaires (blog, réalisations…).
+
+        Le validateur ne regardait qu'index.html. Une page de collection dont
+        le lien vers `../style.css` serait cassé s'afficherait sans aucun style
+        chez le client, sans que rien ne le signale.
+        """
+        output = self.project.output_dir
+        if not output.is_dir():
+            return
+
+        secondaires = [
+            p for p in sorted(output.rglob("*.html"))
+            if p != output / "index.html"
+        ]
+        if not secondaires:
+            return
+
+        self.logger.info(f"{len(secondaires)} page(s) secondaire(s) contrôlée(s)")
+
+        for page in secondaires:
+            nom = page.relative_to(output).as_posix()
+            try:
+                html = page.read_text(encoding="utf-8")
+            except OSError:
+                continue
+
+            # Les chemins sont relatifs à la page, pas à la racine du site :
+            # c'est précisément là que se glissent les erreurs de préfixe.
+            for reference in set(re.findall(r'(?:src|href)="([^"]+)"', html)):
+                propre = reference.split("?")[0].split("#")[0]
+                if not propre or propre.startswith(("http://", "https://", "data:",
+                                                    "//", "mailto:", "tel:", "#")):
+                    continue
+                if not (page.parent / propre).exists():
+                    self._pb(
+                        "lien_page_casse", "erreur",
+                        f"{nom} : lien cassé vers « {propre} »",
+                        page=nom, cible=propre,
+                    )
+
+            if "<h1" not in html.lower():
+                self._pb("h1_manquant", "warning",
+                         f"{nom} : aucun <h1>", page=nom)
+            if '<meta name="viewport"' not in html:
+                self._pb("viewport_manquant", "erreur",
+                         f"{nom} : meta viewport manquante", page=nom)
+
+    def check_collections_vides(self):
+        """Signale une collection déclarée dont aucun contenu n'a été publié."""
+        try:
+            collections = collections_declarees(self.load_config())
+        except (OSError, ValueError):
+            return
+
+        for collection in collections:
+            dossier = self.project.output_dir / collection["url"]
+            if not (dossier / "index.html").exists():
+                self._pb(
+                    "collection_vide", "warning",
+                    f"Collection « {collection['titre']} » déclarée mais non "
+                    f"générée — dépose des fichiers .txt dans "
+                    f"data/{collection['source']}/ puis lance `pages`",
+                    collection=collection["id"],
+                )
+
     def check_textes_complets(self):
         """Vérifie que chaque section de textes.json contient bien du contenu.
 
@@ -326,6 +393,8 @@ class ValidatorAgent(BaseAgent):
         self.check_formulaires(html)
         self.check_images(html, css)
         self.check_medias(html)
+        self.check_pages_collections()
+        self.check_collections_vides()
         self.check_textes_complets()
 
         erreurs  = [p for p in self.problemes if p["niveau"] == "erreur"]
