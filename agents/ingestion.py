@@ -8,7 +8,8 @@ import hashlib
 import typer
 from pathlib import Path
 from agents.base_agent import BaseAgent
-from utils.extractors import extract_text, EXTRACTORS
+from utils.extractors import EXTRACTEURS_IMAGES, EXTRACTORS, extract_text, extraire_images
+from utils.cleaners import slugifier
 from utils.images import dimensions
 from utils.cleaners import compact_json
 
@@ -19,6 +20,9 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}
 # Garde-fou : sans ça, un client fournissant de gros PDF/DOCX fait exploser
 # le contexte et le coût, et peut tronquer le JSON de sortie.
 MAX_TEXTE_CHARS = 60_000
+
+# Où atterrissent les photos sorties des documents Word et PDF.
+DOSSIER_IMAGES_EXTRAITES = "images-extraites"
 
 
 class IngestionAgent(BaseAgent):
@@ -37,6 +41,79 @@ class IngestionAgent(BaseAgent):
             role="Ingestion — digère et structure les données client",
             project=project,
         )
+
+    # ── ÉTAPE 0 : LIBÉRER LES IMAGES PIÉGÉES (zéro token) ──────────
+    def _liberer_images_embarquees(self) -> int:
+        """Sort les photos collées dans les .docx et les .pdf.
+
+        Les clients envoient rarement leurs photos en pièces jointes : ils les
+        collent dans un document Word. Un .docx de 380 Ko peut ne contenir que
+        379 caractères de texte et quatre photos — que personne ne verrait,
+        puisque l'extraction de texte ne lit que les paragraphes.
+
+        Les images sont écrites dans data/images-extraites/ sous un nom dérivé
+        du document d'origine, donc elles rejoignent le flux normal : catalogue
+        de l'ingestion, puis copie vers output/assets/ par le designer.
+
+        Opération idempotente : un fichier déjà extrait n'est pas réécrit, ce
+        qui garde l'empreinte de data/ stable et le cache d'ingestion valide.
+        """
+        data_dir = self.project.data_dir
+        if not data_dir.is_dir():
+            return 0
+
+        cible = data_dir / DOSSIER_IMAGES_EXTRAITES
+
+        # Déduplication par CONTENU. Un logo revient dans chaque document, et
+        # deux versions d'un même dossier (« INFOS » et « INFOS-1 ») donnent
+        # les mêmes photos : sans cette empreinte, le client verrait la même
+        # image proposée cinq fois au designer.
+        empreintes = set()
+        if cible.is_dir():
+            for existant in cible.iterdir():
+                if existant.is_file():
+                    empreintes.add(hashlib.sha256(existant.read_bytes()).hexdigest())
+
+        nouvelles, doublons = 0, 0
+
+        for document in sorted(data_dir.rglob("*")):
+            if not document.is_file() or document.suffix.lower() not in EXTRACTEURS_IMAGES:
+                continue
+            if cible in document.parents:      # ne pas se relire soi-même
+                continue
+
+            images = extraire_images(document)
+            if not images:
+                continue
+
+            base = slugifier(document.stem) or "document"
+            for numero, (nom_origine, donnees) in enumerate(images, start=1):
+                empreinte = hashlib.sha256(donnees).hexdigest()
+                if empreinte in empreintes:
+                    doublons += 1
+                    continue
+
+                extension = Path(nom_origine).suffix.lower() or ".png"
+                fichier = cible / f"{base}-{numero}{extension}"
+                if fichier.exists():
+                    continue
+
+                cible.mkdir(parents=True, exist_ok=True)
+                fichier.write_bytes(donnees)
+                empreintes.add(empreinte)
+                nouvelles += 1
+                self.logger.info(
+                    f"Image libérée : {document.name} → {fichier.name} "
+                    f"({len(donnees) // 1024} ko)"
+                )
+
+        if nouvelles:
+            message = (f"   📎 {nouvelles} image(s) sortie(s) des documents "
+                       f"→ data/{DOSSIER_IMAGES_EXTRAITES}/")
+            if doublons:
+                message += f" ({doublons} doublon(s) écarté(s))"
+            typer.echo(message)
+        return nouvelles
 
     # ── CACHE (zéro token) ─────────────────────────────────────────
     def _empreinte_data(self, fichiers: list[Path]) -> str:
@@ -198,6 +275,11 @@ Produis un JSON avec cette structure :
         typer.echo("🗂  Ingestion : digestion des données client...")
 
         config = self.load_config()
+
+        # Étape 0 : libérer les photos piégées dans les documents. AVANT la
+        # collecte et l'empreinte, pour que les images extraites soient
+        # cataloguées dès ce run et que le cache reste cohérent.
+        self._liberer_images_embarquees()
 
         # Étape 1 : collecte
         fichiers = self._collecter_fichiers()

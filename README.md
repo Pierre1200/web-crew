@@ -327,6 +327,31 @@ Trois conséquences en chaîne :
 
 ## Les vraies images du client
 
+### Les photos piégées dans les documents
+
+Les clients joignent rarement leurs photos : ils les **collent dans un document
+Word**. Un `.docx` de 380 Ko peut ne contenir que 379 caractères de texte et
+quatre photos — invisibles pour qui ne lit que les paragraphes.
+
+L'ingestion ouvre donc les `.docx` et les `.pdf` pour en sortir les images, et
+les dépose dans `data/images-extraites/` sous un nom dérivé du document
+(`LA CABANE INFOS.docx` → `la-cabane-infos-1.png`). Elles rejoignent ensuite le
+flux normal : catalogue, suggestion d'emplacement, copie vers `output/assets/`.
+
+Deux filtrages, parce qu'un document contient autre chose que des photos :
+
+- **Les artefacts de mise en page** sont écartés — moins de 5 Ko, ou moins de
+  120 px de côté : ce sont des filets, des puces, des images d'espacement. Les
+  fichiers `.wdp` que Word range à côté des PNG le sont aussi, aucun navigateur
+  ne les lit.
+- **Les doublons** sont écartés par empreinte du contenu. Un logo présent dans
+  chaque document ne serait sinon proposé cinq fois au designer.
+
+L'opération est idempotente : une image déjà extraite n'est pas réécrite, ce qui
+garde l'empreinte de `data/` stable et le cache d'ingestion valide.
+
+### Toutes les images
+
 Tout fichier image déposé dans `data/` est **copié automatiquement** dans
 `output/assets/` sous un nom compatible URL (`Portrait Denis Moulin.jpg` →
 `portrait-denis-moulin.jpg`), et ses **dimensions réelles sont lues** en

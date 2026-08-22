@@ -144,17 +144,16 @@ _LECTEURS = (
 )
 
 
-def dimensions(chemin: Path) -> tuple[int, int] | None:
-    """Dimensions réelles d'une image, ou None si le format est illisible.
+def dimensions_depuis_octets(donnees: bytes) -> tuple[int, int] | None:
+    """Dimensions d'une image déjà en mémoire, ou None si le format est illisible.
 
     Les lecteurs vérifient chacun leur signature : on peut donc les essayer
     tous sans se fier à l'extension du fichier, qui ment parfois.
-    """
-    try:
-        donnees = chemin.read_bytes()[:65536]
-    except OSError:
-        return None
 
+    Séparé de `dimensions()` pour servir aussi aux images extraites d'un
+    document Word ou PDF, qui n'ont pas encore de fichier sur le disque.
+    """
+    donnees = donnees[:65536]
     for lecteur in _LECTEURS:
         try:
             taille = lecteur(donnees)
@@ -163,6 +162,14 @@ def dimensions(chemin: Path) -> tuple[int, int] | None:
         if taille and taille[0] > 0 and taille[1] > 0:
             return taille
     return None
+
+
+def dimensions(chemin: Path) -> tuple[int, int] | None:
+    """Dimensions réelles d'un fichier image, ou None si illisible."""
+    try:
+        return dimensions_depuis_octets(chemin.read_bytes())
+    except OSError:
+        return None
 
 
 # ── PRÉPARATION DES FICHIERS ───────────────────────────────────────────
