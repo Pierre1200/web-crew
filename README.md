@@ -42,17 +42,19 @@ L'orchestrateur lit le brief en langage naturel et décide **dynamiquement** que
 
 ## La brigade
 
-Chaque agent tourne sur le modèle adapté à sa tâche — un arbitrage **qualité / coût** assumé : les modèles les plus puissants là où la valeur se joue (contenu, design), les plus économiques sur les tâches mécaniques à schéma fixe.
+Chaque agent tourne sur le modèle et la profondeur de raisonnement adaptés à sa tâche — un arbitrage **qualité / coût** assumé : les modèles les plus puissants là où la valeur se joue (contenu, design), les plus économiques sur les tâches mécaniques à schéma fixe.
 
-| Agent | Rôle | Modèle | Raisonnement |
-|---|---|---|---|
-| **Ingestion** | Digère les données client brutes (docx/pdf/images) en contexte structuré | Sonnet 4.6 | ✅ |
-| **Orchestrateur** | Lit le brief, produit le plan de travail | Haiku 4.5 | — |
-| **Copywriter** | Rédige tous les textes du site à partir du contenu réel | Sonnet 4.6 | ✅ |
-| **Designer** | Génère HTML + CSS + JS cohérents en une passe | Opus 4.8 | ✅ |
-| **Validateur** | Contrôle qualité pur Python (HTML complet, classes cohérentes, liens…) | — *(0 token)* | — |
-| **Critique** | Contrôle du fond des textes : faits inventés, sections creuses, générique | Haiku 4.5 | — |
-| **SEO** | Métadonnées, Open Graph, Schema.org, sitemap, robots.txt | Haiku 4.5 | — |
+| Agent | Rôle | Modèle | Raisonnement | Effort |
+|---|---|---|---|---|
+| **Ingestion** | Digère les données client brutes (docx/pdf/images) en contexte structuré | Sonnet 5 | ✅ | high |
+| **Orchestrateur** | Lit le brief, transcrit la maquette, produit le plan de travail | Sonnet 5 | ✅ | high |
+| **Copywriter** | Rédige tous les textes du site à partir du contenu réel | Opus 5 | ✅ | high |
+| **Designer** | Génère HTML + CSS + JS cohérents en une passe | Opus 5 | ✅ | **xhigh** |
+| **Validateur** | Contrôle qualité pur Python (HTML complet, classes cohérentes, médias…) | — *(0 token)* | — | — |
+| **Critique** | Contrôle du fond des textes : faits inventés, sections creuses, générique | Sonnet 5 | ✅ | high |
+| **SEO** | Métadonnées, Open Graph, Schema.org, sitemap, robots.txt | Haiku 4.5 | — | — |
+
+`effort` (`low` → `max`) règle la profondeur de travail du modèle : c'est le principal levier qualité/coût. Le designer tourne en `xhigh`, le réglage le plus adapté aux tâches de code. **Haiku 4.5 refuse `effort` et le raisonnement adaptatif** — d'où `EFFORT = None` et `THINKING = None` sur l'agent SEO.
 
 L'extraction de texte, le catalogage d'images et toute la validation sont réalisés en **Python pur, sans appel IA** — les tokens ne sont dépensés que là où l'intelligence apporte réellement quelque chose.
 
@@ -141,6 +143,46 @@ projects/mon-client/
 formulaires (les 8 caractères après `/f/` dans l'URL du formulaire). S'il est renseigné,
 le designer génère des formulaires branchés (action + envoi fetch) ; sinon, le JS affiche
 un message honnête invitant à contacter le client par email — jamais de faux « message envoyé ».
+
+**Clés `_note…`** : toute clé dont le nom commence par `_note` (sous `site` ou sous
+`site.style`) est une **consigne adressée aux agents**, transmise telle quelle au designer.
+C'est le moyen d'imposer une contrainte que le reste de la config ne sait pas exprimer :
+
+```json
+"_note_sections":   "Corps en deux colonnes : gauche étroite, droite large.",
+"_note_formulaire": "PAS de formulaire de contact — un simple lien mailto."
+```
+
+### Galerie vidéo / audio
+
+Le champ `site.medias` déclare des lecteurs hébergés chez différents fournisseurs.
+**Il suffit de coller l'URL publique** : le fournisseur est reconnu automatiquement et
+l'URL d'intégration est construite en Python (zéro token, aucun format inventé).
+
+```json
+"site": {
+  "medias": {
+    "titre_section": "Les vidéos",
+    "items": [
+      { "titre": "L'Auberge Aveyronnaise",
+        "url": "https://youtu.be/XXXXXXXXXXX",
+        "description": "Le premier épisode, dans le 12e." },
+      { "titre": "La playlist du studio",
+        "url": "https://open.spotify.com/playlist/XXXXXXXX" }
+    ]
+  }
+}
+```
+
+Fournisseurs reconnus : **YouTube** (en `youtube-nocookie`), **Vimeo**, **Dailymotion**,
+**PeerTube**, **Spotify**, **SoundCloud**, **Deezer**. Les vidéos gardent leurs proportions
+via `aspect-ratio`, les lecteurs audio leur hauteur propre, et tous les iframes sont en
+`loading="lazy"`. La **mise en page** de la galerie, elle, suit le brief du client.
+
+Le validateur vérifie que chaque média déclaré est bien présent dans le HTML livré
+(`media_manquant`) et signale les URL non reconnues (`media_invalide`).
+Pour ajouter un fournisseur : une entrée dans `_FOURNISSEURS` ([utils/embeds.py](utils/embeds.py)),
+rien d'autre à toucher.
 
 ---
 

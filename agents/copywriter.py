@@ -8,6 +8,12 @@ from utils.cleaners import compact_json
 class CopywriterAgent(BaseAgent):
     """Rédige tous les textes du site à partir du plan et des sections du projet."""
 
+    # Le « ton humain » d'un site vient autant du texte que du CSS : un modèle
+    # moins capable écrit une prose marketing correcte mais interchangeable.
+    # C'est le deuxième poste de qualité après le designer.
+    MODEL = "claude-opus-5"
+    EFFORT = "high"
+
     def __init__(self, project: Project):
         super().__init__(
             name="copywriter",
@@ -99,7 +105,7 @@ Adapte librement la structure à chaque section du projet."""
         # un arrêt sur max_tokens (souvent dû au budget de raisonnement) laisserait
         # une sortie tronquée inutilisable.
         response = self.call_claude_continuable(
-            system_prompt, user_message, max_tokens=8192, auto_continue=True
+            system_prompt, user_message, max_tokens=32000, auto_continue=True
         )
 
         textes = self.parse_json_response(response)

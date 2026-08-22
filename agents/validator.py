@@ -4,6 +4,7 @@ import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
 from utils.cleaners import extract_css_classes
+from utils.embeds import construire_manifeste
 
 # Classes ajoutées dynamiquement par main.js — absentes du CSS statique, c'est normal
 _JS_DYNAMIC_CLASSES = {"visible", "scrolled", "open", "active", "loaded", "is-open", "is-active"}
@@ -11,7 +12,10 @@ _JS_DYNAMIC_CLASSES = {"visible", "scrolled", "open", "active", "loaded", "is-op
 # Types de problèmes que la boucle de correction (generate-safe) sait réparer.
 # Tout autre type d'erreur arrête la boucle avec un message explicite, au lieu
 # de tourner à vide jusqu'à max_tentatives.
-FIXABLE_TYPES = {"html_tronque", "html_incomplet", "js_tronque", "classe_absente"}
+FIXABLE_TYPES = {
+    "html_tronque", "html_incomplet", "js_tronque", "classe_absente",
+    "media_manquant",
+}
 
 
 class ValidatorAgent(BaseAgent):
@@ -153,6 +157,31 @@ class ValidatorAgent(BaseAgent):
                          "Formulaire sans attribut action — aucun envoi réel "
                          "(renseigne site.formspree_id dans config.json)")
 
+    def check_medias(self, html: str):
+        """Vérifie que chaque média déclaré dans config.json est bien intégré.
+
+        Un lecteur oublié, c'est une vidéo que le client ne verra pas sur son
+        site : on compare l'URL d'intégration attendue au HTML réellement livré.
+        """
+        if not html:
+            return
+        try:
+            manifeste = construire_manifeste(self.load_config())
+        except (OSError, ValueError) as e:
+            self.logger.info(f"config.json illisible — médias non vérifiés : {e}")
+            return
+
+        for erreur in manifeste["erreurs"]:
+            self._pb("media_invalide", "erreur", erreur)
+
+        for media in manifeste["items"]:
+            if media["embed_url"] not in html:
+                self._pb(
+                    "media_manquant", "erreur",
+                    f"Média « {media['titre']} » ({media['libelle']}) absent du HTML",
+                    media=media["titre"],
+                )
+
     def check_textes_complets(self):
         """Vérifie que chaque section de textes.json contient bien du contenu.
 
@@ -195,6 +224,7 @@ class ValidatorAgent(BaseAgent):
         self.check_css_complet(css)
         self.check_js_complet(js)
         self.check_formulaires(html)
+        self.check_medias(html)
         self.check_textes_complets()
 
         erreurs  = [p for p in self.problemes if p["niveau"] == "erreur"]

@@ -3,6 +3,7 @@ import typer
 from agents.base_agent import BaseAgent
 from utils.project import Project
 from utils.cleaners import clean_code_output, extract_css_classes, strip_markdown_fences, compact_json
+from utils.embeds import construire_manifeste
 
 _FORM_KEYWORDS = {"contact", "newsletter", "reserver", "formulaire", "rdv", "inscription"}
 
@@ -14,10 +15,12 @@ _SEP_JS   = "===JS==="
 class DesignerAgent(BaseAgent):
     """Génère le HTML, CSS et JS du site en une seule requête cohérente."""
 
-    # Le designer tourne sur Opus 4.8 : meilleurs instincts de design front-end
-    # (mise en page, cohérence visuelle) que le reste de l'équipe sur Sonnet 4.6.
-    # Une seule requête par site → surcoût négligeable.
-    MODEL = "claude-opus-4-8"
+    # Le designer tourne sur le modèle le plus capable, avec l'effort maximal
+    # utile au code : c'est ICI que se joue la qualité du rendu livré au client.
+    # Une seule requête par site (~1-2 €) contre des heures de retouche à la
+    # main : ne PAS dégrader ce réglage pour économiser des tokens.
+    MODEL = "claude-opus-5"
+    EFFORT = "xhigh"
 
     def __init__(self, project: Project):
         super().__init__(
@@ -125,11 +128,140 @@ class DesignerAgent(BaseAgent):
   téléphone (utilise les coordonnées présentes dans les textes si disponibles)."""
         return regles_html, regles_js
 
+    def _bloc_medias(self) -> str:
+        """Prépare la galerie vidéo/audio à intégrer, si le projet en déclare une.
+
+        Les URL d'intégration sont construites mécaniquement (utils/embeds.py) :
+        le modèle ne doit RIEN inventer sur ce point, il choisit seulement la
+        mise en page de la galerie en fonction du cahier des charges.
+        """
+        manifeste = construire_manifeste(self.load_config())
+
+        for erreur in manifeste["erreurs"]:
+            self.logger.error(f"Média ignoré — {erreur}")
+            typer.echo(f"   ⚠️  {erreur}")
+
+        items = manifeste["items"]
+        if not items:
+            return ""
+
+        fournisseurs = sorted({m["libelle"] for m in items})
+        self.logger.info(
+            f"{len(items)} média(s) à intégrer — fournisseurs : {', '.join(fournisseurs)}"
+        )
+        typer.echo(f"   🎬 {len(items)} média(s) — {', '.join(fournisseurs)}")
+
+        titre = manifeste["titre_section"]
+        entete = f'Titre de la section médias : « {titre} »\n' if titre else ""
+
+        return f"""
+
+MÉDIAS À INTÉGRER — {len(items)} lecteur(s), hébergés chez plusieurs fournisseurs :
+{entete}{compact_json(items)}
+
+Règles d'intégration des médias (strictes) :
+- Un <iframe> par média, dont l'attribut src reprend embed_url À L'IDENTIQUE — \
+ne raccourcis, ne reconstruis et ne « corriges » aucune de ces URL.
+- Sur chaque iframe : loading="lazy", title reprenant le titre du média, \
+referrerpolicy="strict-origin-when-cross-origin", et allowfullscreen pour la vidéo.
+- Les médias de type "video" gardent leurs proportions via aspect-ratio (valeur \
+du champ ratio), largeur 100 %, jamais de hauteur fixe. Les médias de type \
+"audio" utilisent la hauteur indiquée par le champ hauteur.
+- Affiche le titre de chaque média, et sa description quand elle est fournie.
+- La galerie doit rester lisible avec un seul média comme avec dix : la grille \
+s'adapte au nombre d'éléments, elle ne suppose pas un compte fixe.
+- La disposition de la galerie suit le cahier des charges du client s'il en parle."""
+
+    def _cahier_des_charges(self, plan: dict) -> str:
+        """Reconstitue la commande réelle du client pour le designer.
+
+        C'était LE trou de l'architecture : Pierre décrit une maquette précise
+        dans brief.md, l'orchestrateur la transcrit fidèlement dans
+        plan["taches"], et le designer ne lisait que style_guide + textes.json.
+        Toute l'information de STRUCTURE (ordre des blocs, colonnes, contraintes
+        de mise en page) était écrite sur le disque puis jetée — d'où des rendus
+        qui appliquaient toujours le même gabarit quel que soit le brief.
+
+        Trois sources, de la plus précise à la plus générale :
+        - l'instruction que l'orchestrateur a écrite POUR le designer
+        - config["site"]["sections"] : les libellés riches ("Hero — deux
+          colonnes : portrait à gauche + accroche à droite"), pas les clés
+          aplaties de textes.json
+        - config["site"]["_note_sections"] : la contrainte de disposition globale
+
+        Retourne "" si le projet ne décrit rien — le designer retombe alors sur
+        ses conventions par défaut, comme avant.
+        """
+        site = self.load_config().get("site", {})
+
+        instruction = next(
+            (t.get("instruction", "") for t in plan.get("taches", [])
+             if t.get("agent") == "designer"),
+            "",
+        )
+        sections_config = site.get("sections", []) or []
+
+        # Convention du projet : toute clé "_note…" est une consigne écrite pour
+        # les agents (_note_sections, _note_formulaire…). On les ramasse toutes,
+        # sous site et sous site.style — ajouter une nouvelle note dans un
+        # config.json suffit alors à la faire remonter, sans toucher au code.
+        notes = []
+        for source in (site, site.get("style") or {}):
+            if not isinstance(source, dict):
+                continue
+            for cle, valeur in source.items():
+                if cle.startswith("_note") and isinstance(valeur, str) and valeur.strip():
+                    notes.append(valeur.strip())
+
+        if not (instruction or sections_config or notes):
+            self.logger.info("Aucun cahier des charges — conventions par défaut")
+            return ""
+
+        blocs = [
+            "CAHIER DES CHARGES DU CLIENT — fait autorité sur TOUTES les "
+            "conventions par défaut listées plus bas."
+        ]
+        if instruction:
+            blocs.append(f"\nMission confiée au designer :\n{instruction}")
+        if sections_config:
+            liste = "\n".join(f"  {i}. {s}" for i, s in enumerate(sections_config, 1))
+            blocs.append(
+                f"\nStructure et disposition attendues, DANS CET ORDRE EXACT :\n{liste}"
+            )
+        if notes:
+            liste_notes = "\n".join(f"  - {n}" for n in notes)
+            blocs.append(f"\nContraintes explicites du client :\n{liste_notes}")
+        blocs.append(
+            "\nN'ajoute AUCUNE section absente de cette liste et n'en retire aucune. "
+            "Si le cahier des charges contredit une convention par défaut "
+            "(hauteur du hero, présence d'une navigation, nombre de colonnes...), "
+            "le cahier des charges gagne, sans exception."
+        )
+
+        self.logger.info(
+            f"Cahier des charges transmis — instruction: {bool(instruction)}, "
+            f"{len(sections_config)} section(s) décrite(s), {len(notes)} note(s)"
+        )
+        return "\n".join(blocs)
+
     def _generate_site(self, plan: dict, textes: dict) -> tuple[str, str, str]:
         """Génère HTML + CSS + JS en une seule requête pour garantir la cohérence."""
         style_guide  = plan["style_guide"]
         sections     = list(textes.keys())
-        sections_str = ", ".join(["nav"] + sections + ["footer"])
+
+        cahier = self._cahier_des_charges(plan)
+        # Sans cahier des charges, on suppose une structure de site vitrine
+        # classique. Avec, on ne force plus ni nav ni footer : une page
+        # d'attente d'un seul écran n'a ni l'un ni l'autre.
+        if cahier:
+            structure_note = (
+                "La structure du <body> est celle du cahier des charges ci-dessus."
+            )
+        else:
+            structure_note = (
+                "Structure du <body> : "
+                + ", ".join(["nav"] + sections + ["footer"])
+            )
 
         fonts        = style_guide.get("fonts", {})
         font_heading = fonts.get("heading", "")
@@ -149,15 +281,25 @@ class DesignerAgent(BaseAgent):
                 fonts_css_note += f'\n- --font-body: "{font_body}", <fallback-adapté>;'
 
         form_sections = [s for s in sections if any(kw in s.lower() for kw in _FORM_KEYWORDS)]
+        # Heuristique par mot-clé : elle SUGGÈRE un formulaire, elle ne l'impose
+        # pas. Une section « Contact » peut n'être qu'un lien mailto — c'est le
+        # cas de la page d'attente Studio Bougnat, dont le brief l'interdit.
         form_info = (
-            f"\nSections avec formulaire (validation JS requise) : {', '.join(form_sections)}."
+            f"\n- Sections susceptibles de contenir un formulaire : "
+            f"{', '.join(form_sections)}. Si le cahier des charges décrit un simple "
+            f"lien (mailto, téléphone) au lieu d'un formulaire, suis le cahier et "
+            f"n'écris aucune validation pour cette section."
             if form_sections else ""
         )
         regles_form_html, regles_form_js = self._regles_formulaires()
+        bloc_medias = self._bloc_medias()
 
         system_prompt = f"""\
-Tu es un développeur web full-stack expert.
-Tu génères les 3 fichiers d'un site vitrine statique en UNE SEULE réponse.
+Tu es directeur artistique ET intégrateur front-end.
+Tu conçois des sites sur mesure : chaque projet a sa propre composition, dictée
+par le cahier des charges du client — jamais un gabarit réutilisé tel quel.
+Tu génères les 3 fichiers du site en UNE SEULE réponse.
+
 Utilise EXACTEMENT ces séparateurs dans cet ordre, sans aucun texte entre les sections :
 
 {_SEP_HTML}
@@ -171,48 +313,73 @@ Règle absolue : aucun texte avant {_SEP_HTML}, aucun texte après le dernier bl
 Aucune explication. Si la génération est interrompue et reprise, continue directement \
 le code sans rien résumer."""
 
-        user_message = f"""Génère les 3 fichiers d'un site vitrine professionnel.
+        user_message = f"""{cahier}
 
-Style guide :
+IDENTITÉ VISUELLE (couleurs et polices décidées pour ce projet) :
 {compact_json(style_guide)}
 
-Sections ({sections_str}) avec leurs textes :
+CONTENU RÉDIGÉ À INTÉGRER — une clé par bloc, à placer dans la structure demandée :
 {compact_json(textes)}
+{bloc_medias}
 
-RÈGLES HTML :
-- De <!DOCTYPE html> à </html>, complet, sans omission ni troncature
-- lang="fr" sur la balise <html>
-- <meta name="viewport" content="width=device-width, initial-scale=1.0"> dans le <head>
-- <meta charset="UTF-8"> dans le <head>{fonts_html_note}
+{structure_note}
+
+CONTRAINTES TECHNIQUES (non négociables) :
+- HTML complet de <!DOCTYPE html> à </html>, sans omission ni troncature
+- lang="fr" sur <html>, <meta charset="UTF-8"> et <meta name="viewport" \
+content="width=device-width, initial-scale=1.0"> dans le <head>{fonts_html_note}
 - <link rel="stylesheet" href="style.css"> dans le <head>
 - <script src="main.js"></script> juste avant </body>
-- Pas de <style> ni de CSS inline
-- Classes BEM cohérentes avec le CSS généré
-- Les <img> : utiliser src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" (ex: pour alt="Vue de Paris by night" → src="https://picsum.photos/seed/paris/800/450") et classe img-placeholder. Choisis un mot-clé court (1-2 mots, minuscules, sans accent, tirets autorisés) tiré du contexte de l'image. Largeur/hauteur adaptées au ratio voulu (4/3 → 800/600, 16/9 → 800/450).{regles_form_html}
+- Aucune balise <style>, aucun style inline, aucune librairie externe
+- Classes BEM, strictement cohérentes entre le HTML et le CSS
+- Accessibilité : un seul <h1>, hiérarchie de titres sans saut, alt décrivant \
+chaque image, focus visible au clavier, contraste texte/fond conforme WCAG AA
+- Chaque <img> porte width et height (évite le décalage au chargement)
+- Images d'illustration : src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" \
+avec un mot-clé court tiré du contexte (minuscules, sans accent) et la classe \
+img-placeholder — ratio adapté au cadrage voulu (4/3 → 800/600, 16/9 → 800/450){regles_form_html}
+- CSS : variables dans :root (couleurs, polices, échelle d'espacement), reset \
+minimal en tête, mobile-first{fonts_css_note}
 
-RÈGLES CSS :{fonts_css_note}
-- Variables CSS dans :root (--color-primaire, --color-fond, --color-texte, --color-accent, --color-secondaire, --font-heading, --font-body)
-- Reset CSS minimal en début
-- Mobile-first, breakpoints 768px et 1200px
-- Navigation sticky transparente → colorée (.scrolled) au scroll, hauteur 70px
-- Hero plein écran (min-height: 100vh) avec image de fond simulée (gradient sombre), overlay, texte centré
-- Grilles : 1 col mobile / 2 col tablette / 3 col desktop
-- Échelle typographique : h1 clamp(2.5rem, 6vw, 5rem), h2 clamp(1.8rem, 4vw, 3rem), h3 clamp(1.2rem, 2.5vw, 1.8rem)
-- Boutons : .btn (base), .btn--primary (couleur primaire), .btn--secondary (contour) — padding 0.8rem 2rem, border-radius 4px, transition
-- Cartes : .card avec box-shadow subtil, border-radius 8px, overflow hidden
-- img et .img-placeholder : display block, width 100%, aspect-ratio 4/3, object-fit cover; .img-placeholder avec background gradient gris élégant
-- Animations fade-in avec classe .visible (opacity + translateY)
-- Sections alternées (fond clair / fond légèrement teinté)
-- Footer sobre avec padding généreux
+PRINCIPES DE COMPOSITION — c'est ce qui sépare un site travaillé d'un gabarit :
+- Rythme vertical VARIABLE : toutes les sections n'ont pas la même respiration. \
+Alterne blocs denses et blocs aérés plutôt qu'un padding uniforme partout.
+- Une seule chose domine par écran. Trois éléments de poids égal qui se disputent \
+l'attention, c'est une page morte.
+- Échelle d'espacement à sauts francs (8 / 16 / 24 / 40 / 64 / 96 / 160), pas une \
+suite de multiples de 1rem qui aplatit tout.
+- Largeur de lecture limitée (~68 caractères) sur les paragraphes. Les titres \
+peuvent dépasser, le corps de texte jamais.
+- Composition assumée : si la maquette impose une asymétrie, ne la recentre pas.
+- Matière et profondeur : bordures fines, tons superposés, légère texture. \
+Évite l'ombre portée générique posée sur chaque carte.
+- Typographie soignée : interlettrage resserré sur les grands titres, interligne \
+généreux sur le corps, contraste de graisses assumé.
+- Mouvement SÉLECTIF : deux ou trois éléments animés qui le méritent, jamais \
+toutes les sections. Toujours neutralisé sous @media (prefers-reduced-motion: reduce).
 
-RÈGLES JS (vanilla, aucune librairie) :
-- IntersectionObserver → ajoute classe .visible au scroll (threshold 0.15)
-- Nav sticky : classe .scrolled après 80px de scroll
-- Smooth scroll sur liens d'ancre
-- Menu burger mobile (toggle classe .open sur nav){form_info}{regles_form_js}"""
+À ÉVITER — signature immédiate d'un site généré à la chaîne :
+hero 100vh systématique, fade-in sur chaque section, trois cartes à ombre \
+identique alignées, dégradé violet, emoji en guise d'icône, texte de remplissage.
+
+CONVENTIONS PAR DÉFAUT — à appliquer UNIQUEMENT si le cahier des charges ne dit \
+rien de contraire sur le point concerné :
+- Navigation sticky avec état .scrolled au défilement (si le site a une navigation)
+- Grilles 1 colonne mobile → 2 tablette → 3 desktop
+- Titres fluides en clamp()
+- Boutons .btn / .btn--primary / .btn--secondary, cartes .card
+- Sections alternées fond clair / fond légèrement teinté
+
+JAVASCRIPT (vanilla, aucune librairie) — uniquement ce que la page utilise \
+réellement, pas de code mort :
+- Révélation au défilement via IntersectionObserver (classe .visible), sur les \
+seuls éléments choisis
+- Navigation : classe .scrolled au défilement et menu burger mobile (classe .open) \
+— seulement s'il y a une navigation
+- Défilement doux sur les liens d'ancre internes{form_info}{regles_form_js}"""
 
         typer.echo("   → Génération HTML + CSS + JS en une seule requête...")
-        response = self.call_claude_continuable(system_prompt, user_message, max_tokens=8192)
+        response = self.call_claude_continuable(system_prompt, user_message, max_tokens=64000)
         return self._parse_site_response(response)
 
     def run(self, context: dict) -> dict:
@@ -268,15 +435,24 @@ RÈGLES JS (vanilla, aucune librairie) :
         textes      = self.read_json("temp/textes.json")
         css         = (self.project.output_dir / "style.css").read_text(encoding="utf-8")
         sections    = list(textes.keys())
-        sections_str = ", ".join(["nav"] + sections + ["footer"])
-        classes_str  = ", ".join(extract_css_classes(css))
+        classes_str = ", ".join(extract_css_classes(css))
 
-        # Récupérer les fonts du plan pour les réinjecter
+        # Récupérer le plan pour réinjecter les fonts ET le cahier des charges :
+        # sans lui, une régénération de secours reconstruirait une page au
+        # gabarit générique et effacerait la maquette du client.
         try:
             plan  = self.read_json("temp/plan.json")
             fonts = plan.get("style_guide", {}).get("fonts", {})
         except Exception:
-            fonts = {}
+            plan, fonts = {}, {}
+
+        cahier = self._cahier_des_charges(plan) if plan else ""
+        structure_note = (
+            "La structure du <body> est celle du cahier des charges ci-dessus."
+            if cahier
+            else "Structure du <body> : " + ", ".join(["nav"] + sections + ["footer"])
+        )
+
         fonts_link = self._build_fonts_link(fonts)
         fonts_note = (
             f"\nOBLIGATOIRE dans le <head> (avant style.css) :\n{fonts_link}"
@@ -289,11 +465,17 @@ Tu génères UNIQUEMENT la structure HTML5 complète.
 Commence directement par <!DOCTYPE html> et termine obligatoirement par </body></html>."""
 
         regles_form_html, _ = self._regles_formulaires()
+        bloc_medias = self._bloc_medias()
 
-        user_message = f"""Génère un index.html complet pour un site vitrine.
+        user_message = f"""{cahier}
+
+Régénère l'index.html complet de ce site, en réutilisant le CSS déjà produit.
 
 Classes CSS disponibles — utilise UNIQUEMENT celles-ci, n'en invente aucune :
 {classes_str}
+{bloc_medias}
+
+{structure_note}
 
 OBLIGATOIRE dans le <head> :
 - <meta charset="UTF-8">
@@ -301,15 +483,14 @@ OBLIGATOIRE dans le <head> :
 - <link rel="stylesheet" href="style.css">
 OBLIGATOIRE : <script src="main.js"></script> avant </body>
 INTERDIT : balise <style>, CSS inline
+Accessibilité : un seul <h1>, alt sur chaque image, width et height sur chaque <img>
 Images : src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" avec un mot-clé tiré du contexte de l'image (minuscules, sans accent, tirets autorisés).{regles_form_html}
-
-Sections dans le <body> : {sections_str}
 
 Textes à intégrer :
 {compact_json(textes)}"""
 
         html = clean_code_output(
-            self.call_claude_continuable(system_prompt, user_message, max_tokens=8192)
+            self.call_claude_continuable(system_prompt, user_message, max_tokens=32000)
         )
         if self._valider_html(html):
             (self.project.output_dir / "index.html").write_text(html, encoding="utf-8")
@@ -353,7 +534,7 @@ Cible UNIQUEMENT les ids et classes présents dans ce HTML :
 {html}"""
 
         js = clean_code_output(
-            self.call_claude_continuable(system_prompt, user_message, max_tokens=4096)
+            self.call_claude_continuable(system_prompt, user_message, max_tokens=16000)
         )
         if js and js.count("{") == js.count("}"):
             (self.project.output_dir / "main.js").write_text(js, encoding="utf-8")
@@ -405,5 +586,5 @@ Génère UNIQUEMENT les règles CSS pour ces {len(noms_classes)} classes.
 Respecte les conventions (BEM, variables CSS) du CSS existant.
 Palette du projet : {couleurs_str}."""
 
-        response = self.call_claude_continuable(system_prompt, user_message, max_tokens=2048)
+        response = self.call_claude_continuable(system_prompt, user_message, max_tokens=8000)
         return clean_code_output(response)

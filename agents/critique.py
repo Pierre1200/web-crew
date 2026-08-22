@@ -17,11 +17,12 @@ from utils.cleaners import compact_json
 class CritiqueAgent(BaseAgent):
     """Relit textes.json et signale inventions, sections vides et texte générique."""
 
-    # Tâche de contrôle à schéma fixe : Haiku suffit et coûte peu — le critique
-    # ne PRODUIT rien, il signale. Si ses verdicts semblent trop laxistes sur
-    # un projet, le passer ponctuellement sur claude-sonnet-4-6.
-    MODEL = "claude-haiku-4-5"
-    THINKING = None
+    # Un juge trop indulgent ne sert à rien : le critique doit repérer des
+    # inventions factuelles subtiles, ce qui demande du raisonnement. Haiku
+    # laissait passer trop de choses pour un contrôle qui précède une livraison.
+    MODEL = "claude-sonnet-5"
+    THINKING = {"type": "adaptive"}
+    EFFORT = "high"
 
     def __init__(self, project):
         super().__init__(
@@ -82,7 +83,7 @@ Produis un JSON avec cette structure exacte :
   "resume": "verdict global en 2 phrases"
 }}"""
 
-        response = self.call_claude(system_prompt, user_message, max_tokens=2048)
+        response = self.call_claude(system_prompt, user_message, max_tokens=8192)
         critique = self.parse_json_response(response)
 
         self.write_json("temp/critique.json", critique)

@@ -13,12 +13,20 @@ class BaseAgent:
     # Modèle unique pour toute l'équipe — surchargeable via WEBCREW_MODEL
     # (ou par un agent qui redéfinit l'attribut). Évite la duplication du
     # nom de modèle dispersée dans chaque appel API.
-    MODEL = os.getenv("WEBCREW_MODEL", "claude-sonnet-4-6")
+    MODEL = os.getenv("WEBCREW_MODEL", "claude-opus-5")
 
-    # Raisonnement adaptatif par défaut. Un agent le désactive avec THINKING = None
-    # (tâches mécaniques : ingestion/orchestrateur/SEO), ce qui économise des tokens
-    # de sortie ET est obligatoire sur Haiku 4.5 (qui ne supporte pas l'adaptatif).
+    # Raisonnement adaptatif. THINKING = None n'envoie pas le paramètre :
+    # obligatoire sur Haiku 4.5 qui ne supporte pas l'adaptatif. Attention,
+    # sur Opus 5 le raisonnement est actif PAR DÉFAUT — ne pas envoyer le
+    # paramètre n'économise donc rien, c'est `effort` qui règle la dépense.
     THINKING = {"type": "adaptive"}
+
+    # Profondeur de raisonnement et de travail : low | medium | high | xhigh | max.
+    # C'est LE levier qualité/coût des modèles récents. "high" est le défaut de
+    # l'API ; "xhigh" est le meilleur réglage pour les tâches de code (designer).
+    # EFFORT = None n'envoie pas le paramètre — OBLIGATOIRE sur Haiku 4.5, qui
+    # rejette output_config.effort avec une erreur 400.
+    EFFORT = "high"
 
     # Consommation cumulée du run, par modèle. Attribut de CLASSE (analogie C :
     # variable statique partagée) : tous les agents du process incrémentent la
@@ -69,6 +77,15 @@ class BaseAgent:
         """Renvoie {'thinking': ...} si l'agent l'active, sinon {} — pour ne pas
         envoyer le paramètre aux modèles qui ne le supportent pas (Haiku 4.5)."""
         return {"thinking": self.THINKING} if self.THINKING else {}
+
+    def _kwargs_effort(self) -> dict:
+        """Renvoie {'output_config': {'effort': ...}} si l'agent le définit.
+
+        Séparé de _kwargs_thinking parce que les deux paramètres n'ont pas la
+        même compatibilité : Haiku 4.5 refuse les deux, mais un agent pourrait
+        vouloir du raisonnement sans régler l'effort (ou l'inverse).
+        """
+        return {"output_config": {"effort": self.EFFORT}} if self.EFFORT else {}
 
     def _setup_logger(self):
         """Configure les logs de l'agent dans le dossier du projet."""
@@ -175,8 +192,16 @@ class BaseAgent:
             json.dump(data, f, ensure_ascii=False, indent=2)
         self.logger.info(f"Fichier écrit : {path}")
 
-    def call_claude(self, system_prompt: str, user_message: str, max_tokens: int = 4096) -> str:
-        """Appelle l'API Claude et retourne la réponse texte."""
+    def call_claude(self, system_prompt: str, user_message: str, max_tokens: int = 16000) -> str:
+        """Appelle l'API Claude (sans streaming) et retourne la réponse texte.
+
+        Pour les réponses courtes à schéma fixe (JSON de plan, métadonnées).
+        Le défaut de 16 000 tient sous le délai d'expiration HTTP tout en
+        laissant de la marge : ATTENTION, les tokens de raisonnement se
+        déduisent de max_tokens — un budget trop serré peut être entièrement
+        consommé par la réflexion, avant le moindre caractère de réponse.
+        Au-delà, passer par call_claude_continuable (streaming).
+        """
         self.logger.info(f"Appel API Claude — {len(user_message)} caractères")
 
         message = self.client.messages.create(
@@ -187,6 +212,7 @@ class BaseAgent:
                 {"role": "user", "content": user_message}
             ],
             **self._kwargs_thinking(),
+            **self._kwargs_effort(),
         )
 
         response = self._extraire_texte(message)
@@ -202,14 +228,20 @@ class BaseAgent:
         self,
         system_prompt: str,
         user_message: str,
-        max_tokens: int = 8192,
+        max_tokens: int = 32000,
         auto_continue: bool = False,
     ) -> str:
-        """Appelle Claude et poursuit si la limite de tokens est atteinte.
+        """Appelle Claude EN STREAMING et poursuit si la limite est atteinte.
+
+        Le streaming est obligatoire au-delà de ~16 000 tokens de sortie : sans
+        lui, la requête HTTP expire avant la fin de la génération. En échange, on
+        peut viser 32-64k tokens d'un coup, et la boucle de poursuite ci-dessous
+        ne sert plus que de filet de sécurité. C'est important pour la QUALITÉ :
+        chaque reprise crée une « couture » dans le code (c'est une couture de ce
+        type qui avait produit un <label> dupliqué sur le site adap12).
 
         Poursuite automatique si `auto_continue=True` OU si l'entrée standard
         n'est pas un terminal (run CI/cron) — sinon on demande confirmation.
-        Évite de figer le pipeline dans un contexte non-interactif.
         """
         import sys
 
@@ -219,13 +251,19 @@ class BaseAgent:
         while True:
             self.logger.info(f"Appel API Claude — {len(messages[-1]['content'])} chars (dernier msg)")
 
-            message = self.client.messages.create(
+            # with ... as stream : le SDK ouvre la connexion, la maintient le
+            # temps de la génération, et la referme proprement à la sortie du
+            # bloc (même en cas d'erreur). get_final_message() rassemble tous
+            # les morceaux reçus en un objet identique à un appel classique.
+            with self.client.messages.stream(
                 model=self.MODEL,
                 max_tokens=max_tokens,
                 system=system_prompt,
                 messages=messages,
                 **self._kwargs_thinking(),
-            )
+                **self._kwargs_effort(),
+            ) as stream:
+                message = stream.get_final_message()
 
             chunk = self._extraire_texte(
                 message, allow_empty=(message.stop_reason == "max_tokens")

@@ -16,9 +16,12 @@ _SEO_FIN   = "<!-- /web-crew:seo -->"
 class SeoAgent(BaseAgent):
     """Génère les métadonnées SEO et les injecte dans le HTML. Agent hybride."""
 
-    # Tâche mécanique (métadonnées à schéma fixe) : Haiku 4.5, sans raisonnement.
+    # Vraie tâche mécanique (métadonnées à schéma fixe) : Haiku suffit.
+    # THINKING et EFFORT à None sont OBLIGATOIRES ici — Haiku 4.5 rejette le
+    # raisonnement adaptatif ET output_config.effort avec une erreur 400.
     MODEL = "claude-haiku-4-5"
     THINKING = None
+    EFFORT = None
 
     def __init__(self, project: Project):
         super().__init__(

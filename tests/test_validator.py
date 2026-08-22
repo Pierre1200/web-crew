@@ -145,6 +145,41 @@ def test_formulaire_avec_action_ok(proj):
     assert "formulaire_sans_action" not in _types(result)
 
 
+def _config_medias(proj, items):
+    (proj.root / "config.json").write_text(
+        json.dumps({"site": {"medias": {"items": items}}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def test_media_declare_mais_absent_du_html(proj):
+    _config_medias(proj, [{"titre": "L'Auberge", "url": "https://youtu.be/dQw4w9WgXcQ"}])
+    _site(proj)  # HTML sans le moindre iframe
+    result = ValidatorAgent(proj).run({})
+    pbs = [p for p in result["problemes"] if p["type"] == "media_manquant"]
+    assert len(pbs) == 1
+    assert "L'Auberge" in pbs[0]["message"]
+    assert result["valide"] is False
+    # doit être réparable automatiquement par une régénération du HTML
+    assert "media_manquant" in FIXABLE_TYPES
+
+
+def test_media_present_dans_le_html_ne_signale_rien(proj):
+    _config_medias(proj, [{"titre": "L'Auberge", "url": "https://youtu.be/dQw4w9WgXcQ"}])
+    iframe = ('<iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ" '
+              'title="L\'Auberge" loading="lazy" allowfullscreen></iframe>')
+    _site(proj, html=HTML_OK.replace("<body>", f"<body>{iframe}"))
+    result = ValidatorAgent(proj).run({})
+    assert "media_manquant" not in _types(result)
+
+
+def test_media_mal_configure_est_signale(proj):
+    _config_medias(proj, [{"titre": "Cassée", "url": "https://exemple.fr/rien.mp4"}])
+    _site(proj)
+    result = ValidatorAgent(proj).run({})
+    assert "media_invalide" in _types(result)
+
+
 def test_tous_les_problemes_sont_structures(proj):
     _site(proj, html="<html>", css="", js="{")
     result = ValidatorAgent(proj).run({})

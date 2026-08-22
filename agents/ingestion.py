@@ -26,8 +26,9 @@ class IngestionAgent(BaseAgent):
     # Agent CRITIQUE : c'est lui qui décide quel contenu client remonte au reste
     # du pipeline (copywriter inclus). On le maintient volontairement sur un
     # modèle performant + raisonnement adaptatif — NE PAS dégrader pour économiser.
-    MODEL = "claude-sonnet-4-6"
+    MODEL = "claude-sonnet-5"
     THINKING = {"type": "adaptive"}
+    EFFORT = "high"
 
     def __init__(self, project):
         super().__init__(
@@ -171,7 +172,7 @@ Produis un JSON avec cette structure :
         # Continuable + auto : le JSON de sortie doit être complet pour être
         # parsé, et l'ingestion tourne comme pré-étape non interactive.
         response = self.call_claude_continuable(
-            system_prompt, user_message, max_tokens=8192, auto_continue=True
+            system_prompt, user_message, max_tokens=16000, auto_continue=True
         )
         return self.parse_json_response(response)
 

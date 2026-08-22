@@ -177,7 +177,10 @@ def generate_safe(
 
         typer.echo(f"\n🔧 Correction de {len(fixables)} problème(s)...")
 
-        html_problems      = [p for p in fixables if p["type"] in ("html_tronque", "html_incomplet")]
+        # Un média manquant se répare en régénérant le HTML : regenerate_html
+        # reçoit lui aussi le manifeste des lecteurs à intégrer.
+        html_problems      = [p for p in fixables
+                              if p["type"] in ("html_tronque", "html_incomplet", "media_manquant")]
         js_problems        = [p for p in fixables if p["type"] == "js_tronque"]
         classes_manquantes = [p["classe"] for p in fixables if p["type"] == "classe_absente"]
 

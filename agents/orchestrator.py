@@ -8,10 +8,13 @@ from utils.cleaners import compact_json
 class OrchestratorAgent(BaseAgent):
     """Chef de brigade — lit le brief et coordonne les agents."""
 
-    # Tâche mécanique (produire un plan JSON à schéma fixe) : Haiku 4.5, sans
-    # raisonnement. Qualité inchangée, coût divisé.
-    MODEL = "claude-haiku-4-5"
-    THINKING = None
+    # PLUS une tâche mécanique depuis que le plan porte la maquette : c'est
+    # l'orchestrateur qui transcrit la structure décrite dans brief.md en
+    # instruction exploitable par le designer. Si cette transcription est
+    # approximative, tout le rendu en pâtit — Haiku était trop juste ici.
+    MODEL = "claude-sonnet-5"
+    THINKING = {"type": "adaptive"}
+    EFFORT = "high"
 
     def __init__(self, project: Project):
         super().__init__(
