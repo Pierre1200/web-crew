@@ -85,8 +85,8 @@ def _afficher_conso():
 def _preflight(proj: Project):
     """Avertit AVANT de dépenser, si output/ contient du travail manuel perdu.
 
-    Le cas vécu : les formulaires d'adap12 ont été branchés sur Formspree à la
-    main dans output/, sans que formspree_id soit renseigné dans config.json.
+    Le cas vécu : des formulaires branchés sur Formspree à la main dans
+    output/, sans que formspree_id soit renseigné dans config.json.
     Régénérer écrase le branchement ET produit un formulaire factice — une
     régression payante. Ici on le dit avant, pas après.
     """

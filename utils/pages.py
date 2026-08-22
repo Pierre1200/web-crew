@@ -8,19 +8,19 @@ IA, pas cinquante, et sont visuellement identiques par construction.
 
 FORMAT D'ÉCRITURE (fichiers .txt ou .md dans data/<collection>/)
 
-    Titre: D'où vient le mot « bougnat » ?
-    Chapo: Derrière le nom, il y a un métier et une migration.
+    Titre: D'où vient le nom de l'atelier ?
+    Chapo: Une histoire de famille, et un mot inventé sur place.
     Date: 2026-08-14
-    Couverture: charbon-paris.jpg
+    Couverture: atelier.jpg
     Statut: publie
 
-    Le mot « bougnat » désigne à Paris les Auvergnats venus s'y installer.
+    Le premier atelier a ouvert rue des Lilas, dans un ancien entrepôt.
 
-    ## Du charbon au comptoir
+    ## Les débuts
 
-    Les marchands livraient les immeubles, étage par étage.
+    Trois personnes, deux établis, et beaucoup de patience.
 
-    > Le comptoir et le charbon, dans la même boutique.
+    > On ne savait pas encore ce qu'on faisait, mais on le faisait bien.
 
 L'en-tête s'arrête à la première ligne vide. Tout le reste est le corps.
 

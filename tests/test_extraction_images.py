@@ -84,14 +84,14 @@ def test_document_corrompu_ne_plante_pas(proj):
 
 def test_liberation_nomme_les_images_d_apres_le_document(proj):
     # deux images DIFFÉRENTES : deux fois la même serait dédupliquée, à raison
-    _docx(proj, "LA CABANE INFOS.docx",
+    _docx(proj, "INFOS PRATIQUES.docx",
           {"image1.png": _png(800, 600, 20_000), "image2.png": _png(1024, 768, 20_000)})
     nouvelles = IngestionAgent(proj)._liberer_images_embarquees()
 
     assert nouvelles == 2
     dossier = proj.data_dir / DOSSIER_IMAGES_EXTRAITES
     assert sorted(f.name for f in dossier.iterdir()) == [
-        "la-cabane-infos-1.png", "la-cabane-infos-2.png"
+        "infos-pratiques-1.png", "infos-pratiques-2.png"
     ]
 
 

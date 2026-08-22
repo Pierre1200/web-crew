@@ -109,7 +109,7 @@ def test_fichier_illisible_retourne_none(proj):
 
 def test_nom_web_normalise_espaces_accents_et_casse():
     assert nom_web("1.2 La Charte Graphique 2025.PNG") == "1-2-la-charte-graphique-2025.png"
-    assert nom_web("Portrait Denis Moulin.jpg") == "portrait-denis-moulin.jpg"
+    assert nom_web("Portrait Atelier Été.jpg") == "portrait-atelier-ete.jpg"
     assert nom_web("été à la mer.JPEG") == "ete-a-la-mer.jpeg"
 
 

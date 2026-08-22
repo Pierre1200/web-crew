@@ -365,8 +365,8 @@ s'adapte au nombre d'éléments, elle ne suppose pas un compte fixe.
 
         form_sections = [s for s in sections if any(kw in s.lower() for kw in _FORM_KEYWORDS)]
         # Heuristique par mot-clé : elle SUGGÈRE un formulaire, elle ne l'impose
-        # pas. Une section « Contact » peut n'être qu'un lien mailto — c'est le
-        # cas de la page d'attente Studio Bougnat, dont le brief l'interdit.
+        # pas. Une section « Contact » peut n'être qu'un lien mailto, et certains
+        # briefs interdisent explicitement tout formulaire.
         form_info = (
             f"\n- Sections susceptibles de contenir un formulaire : "
             f"{', '.join(form_sections)}. Si le cahier des charges décrit un simple "

@@ -21,20 +21,20 @@ from utils.pages import (
     temps_de_lecture,
 )
 
-ARTICLE = """Titre: D'où vient le mot « bougnat » ?
-Chapo: Derrière le nom, il y a un métier et une migration.
+ARTICLE = """Titre: D'où vient le nom de l'atelier ?
+Chapo: Une histoire de famille, et un mot inventé sur place.
 Date: 2026-08-14
-Couverture: charbon.jpg
+Couverture: atelier.jpg
 Statut: publie
 
-Le mot « bougnat » désigne à Paris les Auvergnats
-venus s'y installer.
+Le premier atelier a ouvert rue des Lilas,
+dans un ancien entrepôt.
 
-## Du charbon au comptoir
+## Les débuts
 
-Les marchands livraient les immeubles, étage par étage.
+Trois personnes, deux établis, et beaucoup de patience.
 
-> Le comptoir et le charbon, dans la même boutique.
+> On ne savait pas encore ce qu'on faisait, mais on le faisait bien.
 """
 
 GABARITS = {
@@ -65,7 +65,7 @@ def _ecrire(proj, nom, contenu, dossier="articles"):
 # ── Outils de texte ────────────────────────────────────────────────────
 
 def test_slugifier():
-    assert slugifier("D'où vient le mot « bougnat » ?") == "d-ou-vient-le-mot-bougnat"
+    assert slugifier("D'où vient le nom de l'atelier ?") == "d-ou-vient-le-nom-de-l-atelier"
     assert slugifier("Œuvres & créations") == "oeuvres-creations"
     assert slugifier("---") == "page"
 
@@ -104,19 +104,19 @@ def test_fins_de_ligne_windows_supportees():
 # ── Lecture d'un fichier ───────────────────────────────────────────────
 
 def test_lire_contenu_complet(proj):
-    contenu = lire_contenu(_ecrire(proj, "bougnat.txt", ARTICLE))
-    assert contenu["titre"] == "D'où vient le mot « bougnat » ?"
-    assert contenu["chapo"].startswith("Derrière le nom")
+    contenu = lire_contenu(_ecrire(proj, "atelier.txt", ARTICLE))
+    assert contenu["titre"] == "D'où vient le nom de l'atelier ?"
+    assert contenu["chapo"].startswith("Une histoire de famille")
     assert contenu["date"] == "2026-08-14"
     assert contenu["date_fr"] == "14 août 2026"
-    assert contenu["couverture"] == "charbon.jpg"
+    assert contenu["couverture"] == "atelier.jpg"
     assert contenu["statut"] == "publie"
-    assert contenu["slug"] == "bougnat"
+    assert contenu["slug"] == "atelier"
     assert [b["type"] for b in contenu["blocs"]] == [
         "paragraphe", "sous_titre", "paragraphe", "citation"
     ]
     # le paragraphe écrit sur deux lignes n'a pas été coupé en deux
-    assert contenu["blocs"][0]["texte"].endswith("venus s'y installer.")
+    assert contenu["blocs"][0]["texte"].endswith("dans un ancien entrepôt.")
 
 
 def test_fichier_sans_entete_reste_exploitable(proj):
@@ -194,25 +194,25 @@ def test_rendre_corps_utilise_les_gabarits_de_blocs():
 # ── Rendu complet d'une collection ─────────────────────────────────────
 
 def test_rendre_collection_produit_les_pages_et_la_liste(proj):
-    _ecrire(proj, "bougnat.txt", ARTICLE)
+    _ecrire(proj, "atelier.txt", ARTICLE)
     _ecrire(proj, "adresses.txt", "Titre: Les adresses\nDate: 2026-07-01\n\nTexte simple.")
     contenus = lire_collection(proj, COLLECTION)
 
     fichiers = dict(rendre_collection(COLLECTION, contenus, GABARITS))
 
-    assert set(fichiers) == {"blog/bougnat.html", "blog/adresses.html", "blog/index.html"}
+    assert set(fichiers) == {"blog/atelier.html", "blog/adresses.html", "blog/index.html"}
 
-    page = fichiers["blog/bougnat.html"]
-    assert "<h1>D&#x27;où vient le mot « bougnat » ?</h1>" in page
-    assert "<h2>Du charbon au comptoir</h2>" in page
+    page = fichiers["blog/atelier.html"]
+    assert "<h1>D&#x27;où vient le nom de l&#x27;atelier ?</h1>" in page
+    assert "<h2>Les débuts</h2>" in page
     assert "<blockquote>" in page
     assert 'href="../style.css"' in page          # préfixe de sous-dossier
-    assert '<img src="../assets/charbon.jpg"' in page
+    assert '<img src="../assets/atelier.jpg"' in page
     assert 'href="index.html"' in page            # retour direct vers la liste
 
     liste = fichiers["blog/index.html"]
     assert liste.count("<li>") == 2
-    assert 'href="bougnat.html"' in liste          # lien relatif dans le dossier
+    assert 'href="atelier.html"' in liste          # lien relatif dans le dossier
     assert "Le blog" in liste
 
 

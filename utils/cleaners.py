@@ -13,7 +13,7 @@ _LIGATURES = (("œ", "oe"), ("Œ", "OE"), ("æ", "ae"), ("Æ", "AE"), ("ß", "ss
 
 def slugifier(texte: str) -> str:
     """Transforme un texte en identifiant utilisable dans une URL ou un nom de
-    fichier : « D'où vient le mot « bougnat » ? » → « d-ou-vient-le-mot-bougnat ».
+    fichier : « D'où vient le nom de l'atelier ? » → « d-ou-vient-le-nom-de-l-atelier ».
 
     Point d'entrée UNIQUE de la normalisation : les noms de fichiers images et
     les adresses de pages passent par ici. Dupliquer cette logique, c'est

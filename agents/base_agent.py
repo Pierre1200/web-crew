@@ -369,7 +369,7 @@ class BaseAgent:
         peut viser 32-64k tokens d'un coup, et la boucle de poursuite ci-dessous
         ne sert plus que de filet de sécurité. C'est important pour la QUALITÉ :
         chaque reprise crée une « couture » dans le code (c'est une couture de ce
-        type qui avait produit un <label> dupliqué sur le site adap12).
+        type qui avait produit un <label> dupliqué sur un site déjà livré).
 
         Poursuite automatique si `auto_continue=True` OU si l'entrée standard
         n'est pas un terminal (run CI/cron) — sinon on demande confirmation.
