@@ -10,19 +10,19 @@ optimisé et durci.
                                     │
   ══════════════════════════════════▼══════════════════════════════════════
   CADRAGE      INGESTION ──────────────▶  temp/context.json
-  ~0,20 $      ORCHESTRATEUR ──────────▶  temp/plan.json
+  ~0,18 €      ORCHESTRATEUR ──────────▶  temp/plan.json
                DIRECTION ARTISTIQUE ───▶  temp/direction.json
                                     │
   ══════════════════════════════════▼══════════════════════════════════════
   PRODUCTION   COPYWRITER ───────────▶  temp/textes.json
-  ~1,30 $      DESIGNER ─────────────▶  index.html · style.css · main.js
+  ~1,20 €      DESIGNER ─────────────▶  index.html · style.css · main.js
                PAGES ────────────────▶  collections (1 appel, quel que soit N)
                SEO ──────────────────▶  balises · sitemap.xml · robots.txt
                                     │
   ══════════════════════════════════▼══════════════════════════════════════
   CONTRÔLE     VALIDATEUR ──────────▶  structure, liens, médias   (0 token)
                CRITIQUE ────────────▶  fond des textes
-               CRITIQUE VISUELLE ───▶  rendu réel, en images      (~0,15 $)
+               CRITIQUE VISUELLE ───▶  rendu réel, en images      (~0,14 €)
                                     │
   ══════════════════════════════════▼══════════════════════════════════════
   LIVRAISON    SÉCURITÉ ────────────▶  durcissement · SECURITE.md  (0 token)
@@ -65,16 +65,16 @@ python3 -m pytest tests/ -q       # 196 tests, aucun appel API, aucune clé requ
 
 | Commande | Effet | Coût |
 |---|---|---|
-| `generate -p X` | Pipeline complet | ~1,50 $ |
-| `generate-safe -p X --visuel 2` | Pipeline, correction auto, critique visuelle | ~3 $ |
-| `ingest -p X [--force]` | Digère `data/` seul | ~0,10 $ |
-| `direction -p X [--archetype …]` | Rejoue la direction artistique | ~0,40 $ |
-| `design-only -p X [--replan]` | Redessine le site | ~1,20 $ |
+| `generate -p X` | Pipeline complet | ~1,40 € |
+| `generate-safe -p X --visuel 2` | Pipeline, correction auto, critique visuelle | ~2,75 € |
+| `ingest -p X [--force]` | Digère `data/` seul | ~0,09 € |
+| `direction -p X [--archetype …]` | Rejoue la direction artistique | ~0,37 € |
+| `design-only -p X [--replan]` | Redessine le site | ~1,10 € |
 | `pages -p X [--gabarits]` | (Re)génère les collections | 0 sans `--gabarits` |
-| `seo-only -p X` | Métadonnées et sitemap | ~0,01 $ |
-| `critique -p X` | Contrôle le fond des textes | ~0,09 $ |
-| `visuel -p X [--corriger] [--tours N]` | Juge le rendu, applique les correctifs | ~0,15 $/passe |
-| `securiser -p X [--durcir] [--injection]` | Audit, durcissement, rapport | 0 (ou ~0,11 $) |
+| `seo-only -p X` | Métadonnées et sitemap | ~0,01 € |
+| `critique -p X` | Contrôle le fond des textes | ~0,08 € |
+| `visuel -p X [--corriger] [--tours N]` | Juge le rendu, applique les correctifs | ~0,14 €/passe |
+| `securiser -p X [--durcir] [--injection]` | Audit, durcissement, rapport | 0 (ou ~0,10 €) |
 | `validate -p X` | Contrôle structurel | 0 |
 | `diff -p X` | Ce que le dernier run a changé | 0 |
 | `restore -p X` | Annule le dernier run | 0 |
@@ -86,17 +86,39 @@ Prévisualiser :
 cd projects/mon-client/output && python3 -m http.server 8080
 ```
 
+### Les coûts
+
+Chaque commande affiche en fin d'exécution ce qu'elle a consommé, par modèle,
+en tokens et en euros :
+
+```
+💰 Consommation du run :
+   • claude-opus-5 : 3 appel(s), 23 000 in, 61 000 out  →  1,51 €
+   • claude-sonnet-5 : 3 appel(s), 24 000 in, 11 000 out  →  0,22 €
+   • claude-haiku-4-5 : 1 appel(s), 5 000 in, 1 000 out  →  < 0,01 €
+   Total : 52 000 in, 73 000 out  →  1,74 €
+```
+
+Anthropic facture en dollars : les euros affichés sont une estimation. Les prix
+par modèle et le taux de change vivent dans [utils/tarifs.py](utils/tarifs.py),
+seul endroit à mettre à jour.
+
+Les montants de ce README sont donnés pour un site vitrine d'une page. Ils
+varient surtout avec les tokens de raisonnement, qui représentent l'essentiel de
+la facture du designer. Les images ne coûtent rien : elles n'atteignent jamais
+le modèle, seul leur catalogue est transmis.
+
 ### Itérer sans se ruiner
 
 Le designer représente environ 40 % de la facture. Pour retravailler un rendu,
 ne relancez pas `generate` :
 
 ```bash
-python3 main.py direction   -p mon-client --archetype galerie-grille   # 0,40 $
-python3 main.py design-only -p mon-client                              # 1,20 $
+python3 main.py direction   -p mon-client --archetype galerie-grille   # 0,37 €
+python3 main.py design-only -p mon-client                              # 1,10 €
 ```
 
-Si seul un détail visuel cloche, `visuel --corriger` coûte 0,15 $ et applique
+Si seul un détail visuel cloche, `visuel --corriger` coûte 0,14 € et applique
 les correctifs CSS sans rien régénérer.
 
 > `design-only` sans `--replan` rejoue l'ancien plan. Après toute modification

@@ -10,6 +10,7 @@ load_dotenv()
 
 from utils.project import Project
 from utils import snapshot
+from utils.tarifs import cout_euros, formater, formater_nombre
 from agents.base_agent import BaseAgent
 from agents.orchestrator import OrchestratorAgent
 from agents.ingestion import IngestionAgent
@@ -62,24 +63,45 @@ def _load_project(project_name: str) -> Project:
 
 
 def _afficher_conso():
-    """Affiche le total de tokens consommés pendant la commande, par modèle.
+    """Affiche ce que la commande a consommé, par modèle, en tokens et en euros.
 
-    Volontairement en tokens et pas en euros : les tarifs changent, les
-    compteurs non. Le détail appel par appel reste dans logs/<agent>.log.
+    Les tarifs et le taux de change vivent dans utils/tarifs.py : un seul
+    endroit à mettre à jour. Anthropic facturant en dollars, les euros affichés
+    sont une estimation. Le détail appel par appel reste dans logs/<agent>.log.
     """
     conso = BaseAgent.CONSO_RUN
     if not conso:
         return
+
     typer.echo("\n💰 Consommation du run :")
     total_in = total_out = 0
+    total_euros = 0.0
+    tout_tarife = True
+
     for modele, c in sorted(conso.items()):
+        euros = cout_euros(modele, c["in"], c["out"])
+        if euros is None:
+            tout_tarife = False
+        else:
+            total_euros += euros
         typer.echo(
             f"   • {modele} : {c['appels']} appel(s), "
-            f"{c['in']:,} tokens in, {c['out']:,} out".replace(",", " ")
+            f"{formater_nombre(c['in'])} in, {formater_nombre(c['out'])} out"
+            f"  →  {formater(euros)}"
         )
         total_in += c["in"]
         total_out += c["out"]
-    typer.echo(f"   Total : {total_in:,} in, {total_out:,} out".replace(",", " "))
+
+    # Un total chiffré alors qu'un modèle n'est pas tarifé serait faux : on le
+    # dit « partiel » plutôt que de laisser croire à un montant complet.
+    montant = formater(total_euros) if tout_tarife or total_euros else "?"
+    suffixe = "" if tout_tarife else "  (partiel)"
+    typer.echo(
+        f"   Total : {formater_nombre(total_in)} in, "
+        f"{formater_nombre(total_out)} out  →  {montant}{suffixe}"
+    )
+    if not tout_tarife:
+        typer.echo("   ⚠️  Un modèle n'est pas tarifé dans utils/tarifs.py")
 
 
 def _preflight(proj: Project):
