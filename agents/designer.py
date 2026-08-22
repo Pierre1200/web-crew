@@ -172,84 +172,12 @@ du champ ratio), largeur 100 %, jamais de hauteur fixe. Les médias de type \
 s'adapte au nombre d'éléments, elle ne suppose pas un compte fixe.
 - La disposition de la galerie suit le cahier des charges du client s'il en parle."""
 
-    def _cahier_des_charges(self, plan: dict) -> str:
-        """Reconstitue la commande réelle du client pour le designer.
-
-        C'était LE trou de l'architecture : Pierre décrit une maquette précise
-        dans brief.md, l'orchestrateur la transcrit fidèlement dans
-        plan["taches"], et le designer ne lisait que style_guide + textes.json.
-        Toute l'information de STRUCTURE (ordre des blocs, colonnes, contraintes
-        de mise en page) était écrite sur le disque puis jetée — d'où des rendus
-        qui appliquaient toujours le même gabarit quel que soit le brief.
-
-        Trois sources, de la plus précise à la plus générale :
-        - l'instruction que l'orchestrateur a écrite POUR le designer
-        - config["site"]["sections"] : les libellés riches ("Hero — deux
-          colonnes : portrait à gauche + accroche à droite"), pas les clés
-          aplaties de textes.json
-        - config["site"]["_note_sections"] : la contrainte de disposition globale
-
-        Retourne "" si le projet ne décrit rien — le designer retombe alors sur
-        ses conventions par défaut, comme avant.
-        """
-        site = self.load_config().get("site", {})
-
-        instruction = next(
-            (t.get("instruction", "") for t in plan.get("taches", [])
-             if t.get("agent") == "designer"),
-            "",
-        )
-        sections_config = site.get("sections", []) or []
-
-        # Convention du projet : toute clé "_note…" est une consigne écrite pour
-        # les agents (_note_sections, _note_formulaire…). On les ramasse toutes,
-        # sous site et sous site.style — ajouter une nouvelle note dans un
-        # config.json suffit alors à la faire remonter, sans toucher au code.
-        notes = []
-        for source in (site, site.get("style") or {}):
-            if not isinstance(source, dict):
-                continue
-            for cle, valeur in source.items():
-                if cle.startswith("_note") and isinstance(valeur, str) and valeur.strip():
-                    notes.append(valeur.strip())
-
-        if not (instruction or sections_config or notes):
-            self.logger.info("Aucun cahier des charges — conventions par défaut")
-            return ""
-
-        blocs = [
-            "CAHIER DES CHARGES DU CLIENT — fait autorité sur TOUTES les "
-            "conventions par défaut listées plus bas."
-        ]
-        if instruction:
-            blocs.append(f"\nMission confiée au designer :\n{instruction}")
-        if sections_config:
-            liste = "\n".join(f"  {i}. {s}" for i, s in enumerate(sections_config, 1))
-            blocs.append(
-                f"\nStructure et disposition attendues, DANS CET ORDRE EXACT :\n{liste}"
-            )
-        if notes:
-            liste_notes = "\n".join(f"  - {n}" for n in notes)
-            blocs.append(f"\nContraintes explicites du client :\n{liste_notes}")
-        blocs.append(
-            "\nN'ajoute AUCUNE section absente de cette liste et n'en retire aucune. "
-            "Si le cahier des charges contredit une convention par défaut "
-            "(hauteur du hero, présence d'une navigation, nombre de colonnes...), "
-            "le cahier des charges gagne, sans exception."
-        )
-
-        self.logger.info(
-            f"Cahier des charges transmis — instruction: {bool(instruction)}, "
-            f"{len(sections_config)} section(s) décrite(s), {len(notes)} note(s)"
-        )
-        return "\n".join(blocs)
-
     def _generate_site(self, plan: dict, textes: dict) -> tuple[str, str, str]:
         """Génère HTML + CSS + JS en une seule requête pour garantir la cohérence."""
         style_guide  = plan["style_guide"]
         sections     = list(textes.keys())
 
-        cahier = self._cahier_des_charges(plan)
+        cahier = self.cahier_des_charges(plan)
         # Sans cahier des charges, on suppose une structure de site vitrine
         # classique. Avec, on ne force plus ni nav ni footer : une page
         # d'attente d'un seul écran n'a ni l'un ni l'autre.
@@ -340,6 +268,36 @@ avec un mot-clé court tiré du contexte (minuscules, sans accent) et la classe 
 img-placeholder — ratio adapté au cadrage voulu (4/3 → 800/600, 16/9 → 800/450){regles_form_html}
 - CSS : variables dans :root (couleurs, polices, échelle d'espacement), reset \
 minimal en tête, mobile-first{fonts_css_note}
+- CSS rangé en couches déclarées en TÊTE de feuille : \
+@layer reset, base, composants, utilitaires; — puis chaque règle écrite dans \
+sa couche. Non négociable : des correctifs automatiques sont ajoutés hors couche \
+après coup et doivent pouvoir l'emporter sans surenchère de spécificité.
+
+CSS MODERNE — sers-toi de ces outils là où ils apportent quelque chose, \
+pas partout ni pour la démonstration :
+- Container queries : un composant réutilisable (carte, encart, média) réagit à \
+la largeur de SON conteneur (`container-type: inline-size` sur le parent, \
+`@container` sur l'enfant), pas à celle de l'écran. Les media queries restent \
+pour la mise en page d'ensemble.
+- `:has()` pour les mises en page qui dépendent du contenu réel : \
+`.card:has(img)` autrement que sans image, une section qui change quand elle \
+contient une galerie, etc.
+- Couleur en `oklch()`, déclinaisons via `color-mix(in oklab, …)` : construis un \
+système tonal (surfaces, survols, ombres) à partir des 3-4 couleurs du projet, \
+au lieu d'empiler des hexadécimaux sans lien entre eux. Les dégradés en oklab \
+n'ont pas la zone grisâtre des dégradés RGB.
+- `subgrid` sur les grilles de cartes pour que titres, textes et boutons \
+s'alignent d'une carte à l'autre — un alignement qui tient est une signature de \
+travail soigné.
+- `text-wrap: balance` sur les titres et `text-wrap: pretty` sur les paragraphes : \
+supprime les lignes veuves et les coupures disgracieuses.
+- Propriétés logiques (`margin-inline`, `padding-block`, `inset`) plutôt que \
+leurs équivalents physiques.
+- Conteneur fluide sans media query : \
+`width: min(100% - 2 * var(--marge), 68rem); margin-inline: auto;`
+- Tailles et espacements fluides en `clamp()`.
+- Révélation au défilement : `animation-timeline: view()` encadré par \
+`@supports (animation-timeline: view())`, avec repli JavaScript sinon.
 
 PRINCIPES DE COMPOSITION — c'est ce qui sépare un site travaillé d'un gabarit :
 - Rythme vertical VARIABLE : toutes les sections n'ont pas la même respiration. \
@@ -360,23 +318,28 @@ toutes les sections. Toujours neutralisé sous @media (prefers-reduced-motion: r
 
 À ÉVITER — signature immédiate d'un site généré à la chaîne :
 hero 100vh systématique, fade-in sur chaque section, trois cartes à ombre \
-identique alignées, dégradé violet, emoji en guise d'icône, texte de remplissage.
+identique alignées, dégradé violet, emoji en guise d'icône, texte de remplissage, \
+media query globale pour adapter un composant (c'est le rôle des container \
+queries), empilement d'hexadécimaux sans système tonal, `!important`.
 
 CONVENTIONS PAR DÉFAUT — à appliquer UNIQUEMENT si le cahier des charges ne dit \
 rien de contraire sur le point concerné :
 - Navigation sticky avec état .scrolled au défilement (si le site a une navigation)
-- Grilles 1 colonne mobile → 2 tablette → 3 desktop
-- Titres fluides en clamp()
+- Grille de cartes fluide sans palier arbitraire : \
+`repeat(auto-fit, minmax(min(100%, 18rem), 1fr))`
 - Boutons .btn / .btn--primary / .btn--secondary, cartes .card
-- Sections alternées fond clair / fond légèrement teinté
+- Alternance de surfaces obtenue par color-mix sur la couleur de fond, plutôt \
+que par deux couleurs sans rapport
 
 JAVASCRIPT (vanilla, aucune librairie) — uniquement ce que la page utilise \
-réellement, pas de code mort :
-- Révélation au défilement via IntersectionObserver (classe .visible), sur les \
-seuls éléments choisis
+réellement, pas de code mort. Tout ce que le CSS sait faire seul reste au CSS :
+- Révélation au défilement : seulement en repli, si tu n'as pas pu utiliser \
+`animation-timeline: view()` — via IntersectionObserver (classe .visible), sur \
+les seuls éléments choisis
 - Navigation : classe .scrolled au défilement et menu burger mobile (classe .open) \
 — seulement s'il y a une navigation
-- Défilement doux sur les liens d'ancre internes{form_info}{regles_form_js}"""
+- Défilement doux : `scroll-behavior: smooth` en CSS suffit, pas de JS pour ça\
+{form_info}{regles_form_js}"""
 
         typer.echo("   → Génération HTML + CSS + JS en une seule requête...")
         response = self.call_claude_continuable(system_prompt, user_message, max_tokens=64000)
@@ -446,7 +409,7 @@ seuls éléments choisis
         except Exception:
             plan, fonts = {}, {}
 
-        cahier = self._cahier_des_charges(plan) if plan else ""
+        cahier = self.cahier_des_charges(plan) if plan else ""
         structure_note = (
             "La structure du <body> est celle du cahier des charges ci-dessus."
             if cahier
@@ -542,6 +505,69 @@ Cible UNIQUEMENT les ids et classes présents dans ce HTML :
             return True
         self.logger.error("JS toujours déséquilibré après regenerate_js")
         return False
+
+    def appliquer_correctifs_css(self, problemes: list) -> int:
+        """Applique les corrections CSS proposées par la critique visuelle.
+
+        ZÉRO TOKEN : la critique a déjà rédigé les règles, on ne redemande rien
+        au modèle.
+
+        Comment un correctif l'emporte, sans `!important` : la feuille générée
+        range tout dans des couches (`@layer reset, base, composants,
+        utilitaires`), et **une règle HORS couche bat toujours une règle dans une
+        couche, quelle que soit sa spécificité**. Les correctifs sont donc
+        ajoutés hors couche, en fin de fichier.
+
+        C'est ce qui rend le mécanisme fiable : avec un simple ajout en fin de
+        feuille, un correctif `.hero{...}` ne battrait PAS un `.section .hero{...}`
+        existant (spécificité supérieure). Si la feuille n'utilise aucune couche,
+        on retombe sur l'ordre d'écriture — le comportement d'avant, sans
+        régression.
+
+        Retourne le nombre de correctifs appliqués.
+        """
+        correctifs = [p for p in problemes if (p.get("correction_css") or "").strip()]
+        if not correctifs:
+            return 0
+
+        css_path = self.project.output_dir / "style.css"
+        if not css_path.exists():
+            self.logger.error("style.css absent — correctifs visuels non appliqués")
+            return 0
+
+        morceaux = []
+        for p in correctifs:
+            constat = (p.get("constat") or "").replace("*/", "").strip()
+            morceaux.append(
+                f"/* [{p.get('gravite', '?')}] {p.get('zone', '?')} "
+                f"({p.get('format', 'tous')}) — {constat[:140]} */"
+            )
+            morceaux.append(strip_markdown_fences(p["correction_css"]).strip())
+
+        css_existant = css_path.read_text(encoding="utf-8")
+        utilise_layers = "@layer" in css_existant
+
+        entete = (
+            "\n\n/* ===================================================== */\n"
+            "/* Correctifs issus de la critique visuelle automatique     */\n"
+        )
+        entete += (
+            "/* Hors couche : l'emportent sur toutes les couches.        */\n"
+            if utilise_layers else
+            "/* Feuille sans couches : l'emport dépend de la spécificité. */\n"
+        )
+        entete += "/* ===================================================== */\n"
+
+        css_path.write_text(css_existant + entete + "\n".join(morceaux) + "\n", encoding="utf-8")
+
+        if not utilise_layers:
+            self.logger.warning(
+                "style.css n'utilise pas @layer — un correctif peut être battu "
+                "par une règle existante plus spécifique"
+            )
+
+        self.logger.info(f"{len(correctifs)} correctif(s) CSS visuel(s) appliqué(s)")
+        return len(correctifs)
 
     def fix(self, classes_manquantes: list[str], css: str, html: str) -> str:
         """Génère UNIQUEMENT les règles CSS pour les classes manquantes.

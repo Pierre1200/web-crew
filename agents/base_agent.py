@@ -153,6 +153,80 @@ class BaseAgent:
             typer.echo(f"   💾 Réponse brute sauvegardée pour analyse : {dump}")
             raise
 
+    def cahier_des_charges(self, plan: dict) -> str:
+        """Reconstitue la commande réelle du client, telle que le designer doit
+        la respecter — et telle que la critique visuelle doit la vérifier.
+
+        C'était LE trou de l'architecture : Pierre décrit une maquette précise
+        dans brief.md, l'orchestrateur la transcrit fidèlement dans
+        plan["taches"], et le designer ne lisait que style_guide + textes.json.
+        Toute l'information de STRUCTURE (ordre des blocs, colonnes, contraintes
+        de mise en page) était écrite sur le disque puis jetée — d'où des rendus
+        qui appliquaient toujours le même gabarit quel que soit le brief.
+
+        Trois sources, de la plus précise à la plus générale :
+        - l'instruction que l'orchestrateur a écrite POUR le designer
+        - config["site"]["sections"] : les libellés riches ("Hero — deux
+          colonnes : portrait à gauche + accroche à droite"), pas les clés
+          aplaties de textes.json
+        - toute clé "_note…" sous site ou site.style : les consignes libres
+
+        Vit dans BaseAgent parce que deux agents en dépendent : le designer
+        pour produire, la critique visuelle pour juger la conformité.
+        Retourne "" si le projet ne décrit rien.
+        """
+        site = self.load_config().get("site", {})
+
+        instruction = next(
+            (t.get("instruction", "") for t in plan.get("taches", [])
+             if t.get("agent") == "designer"),
+            "",
+        )
+        sections_config = site.get("sections", []) or []
+
+        # Convention du projet : toute clé "_note…" est une consigne écrite pour
+        # les agents (_note_sections, _note_formulaire…). On les ramasse toutes,
+        # sous site et sous site.style — ajouter une nouvelle note dans un
+        # config.json suffit alors à la faire remonter, sans toucher au code.
+        notes = []
+        for source in (site, site.get("style") or {}):
+            if not isinstance(source, dict):
+                continue
+            for cle, valeur in source.items():
+                if cle.startswith("_note") and isinstance(valeur, str) and valeur.strip():
+                    notes.append(valeur.strip())
+
+        if not (instruction or sections_config or notes):
+            self.logger.info("Aucun cahier des charges — conventions par défaut")
+            return ""
+
+        blocs = [
+            "CAHIER DES CHARGES DU CLIENT — fait autorité sur TOUTES les "
+            "conventions par défaut listées plus bas."
+        ]
+        if instruction:
+            blocs.append(f"\nMission confiée au designer :\n{instruction}")
+        if sections_config:
+            liste = "\n".join(f"  {i}. {s}" for i, s in enumerate(sections_config, 1))
+            blocs.append(
+                f"\nStructure et disposition attendues, DANS CET ORDRE EXACT :\n{liste}"
+            )
+        if notes:
+            liste_notes = "\n".join(f"  - {n}" for n in notes)
+            blocs.append(f"\nContraintes explicites du client :\n{liste_notes}")
+        blocs.append(
+            "\nN'ajoute AUCUNE section absente de cette liste et n'en retire aucune. "
+            "Si le cahier des charges contredit une convention par défaut "
+            "(hauteur du hero, présence d'une navigation, nombre de colonnes...), "
+            "le cahier des charges gagne, sans exception."
+        )
+
+        self.logger.info(
+            f"Cahier des charges transmis — instruction: {bool(instruction)}, "
+            f"{len(sections_config)} section(s) décrite(s), {len(notes)} note(s)"
+        )
+        return "\n".join(blocs)
+
     def lire_contexte_ingestion(self) -> dict:
         """Relit temp/context.json produit par l'agent Ingestion, s'il existe.
 
@@ -223,6 +297,63 @@ class BaseAgent:
             f"tokens in: {usage.input_tokens}, out: {usage.output_tokens}"
         )
         return response
+
+    def call_claude_vision(
+        self,
+        system_prompt: str,
+        blocs: list,
+        max_tokens: int = 16000,
+    ) -> str:
+        """Appelle Claude avec un message MIXTE (images + texte).
+
+        `blocs` est une liste de blocs de contenu, dans l'ordre où le modèle
+        doit les lire — typiquement : une image, sa légende, l'image suivante…
+        Utilisé par la critique visuelle, qui doit REGARDER le site rendu et
+        pas seulement lire son code source.
+
+        Utiliser build_bloc_image() pour construire les blocs d'image.
+        """
+        nb_images = sum(1 for b in blocs if b.get("type") == "image")
+        self.logger.info(f"Appel API Claude (vision) — {nb_images} image(s)")
+
+        message = self.client.messages.create(
+            model=self.MODEL,
+            max_tokens=max_tokens,
+            system=system_prompt,
+            messages=[{"role": "user", "content": blocs}],
+            **self._kwargs_thinking(),
+            **self._kwargs_effort(),
+        )
+
+        response = self._extraire_texte(message)
+        usage = message.usage
+        self._enregistrer_usage(usage)
+        self.logger.info(
+            f"Réponse reçue — {len(response)} caractères | "
+            f"tokens in: {usage.input_tokens}, out: {usage.output_tokens}"
+        )
+        return response
+
+    @staticmethod
+    def build_bloc_image(chemin) -> dict:
+        """Construit un bloc d'image encodé en base64 pour l'API.
+
+        base64 = encodage d'octets binaires en texte ASCII : une image ne peut
+        pas voyager telle quelle dans du JSON, on la transcrit en caractères.
+        """
+        import base64
+        from pathlib import Path
+
+        chemin = Path(chemin)
+        donnees = base64.standard_b64encode(chemin.read_bytes()).decode("utf-8")
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": donnees,
+            },
+        }
 
     def call_claude_continuable(
         self,

@@ -52,6 +52,7 @@ Chaque agent tourne sur le modèle et la profondeur de raisonnement adaptés à 
 | **Designer** | Génère HTML + CSS + JS cohérents en une passe | Opus 5 | ✅ | **xhigh** |
 | **Validateur** | Contrôle qualité pur Python (HTML complet, classes cohérentes, médias…) | — *(0 token)* | — | — |
 | **Critique** | Contrôle du fond des textes : faits inventés, sections creuses, générique | Sonnet 5 | ✅ | high |
+| **Critique visuelle** | Photographie le site rendu et juge composition, maquette, contrastes | Opus 5 | ✅ | **xhigh** |
 | **SEO** | Métadonnées, Open Graph, Schema.org, sitemap, robots.txt | Haiku 4.5 | — | — |
 
 `effort` (`low` → `max`) règle la profondeur de travail du modèle : c'est le principal levier qualité/coût. Le designer tourne en `xhigh`, le réglage le plus adapté aux tâches de code. **Haiku 4.5 refuse `effort` et le raisonnement adaptatif** — d'où `EFFORT = None` et `THINKING = None` sur l'agent SEO.
@@ -78,21 +79,32 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 ## Utilisation
 
 ```bash
-# Pipeline complet : ingestion → orchestrateur → copywriter → designer
+# Pipeline complet : ingestion → orchestrateur → copywriter → designer → SEO
 python3 main.py generate --project mon-client
 
-# Pipeline + boucle de validation/correction automatique
-python3 main.py generate-safe --project mon-client
+# Le chemin recommandé : génération + correction auto + 2 passes de critique visuelle
+python3 main.py generate-safe --project mon-client --visuel 2
+```
 
-# Étapes isolées (économise des tokens)
+Étapes isolées, pour itérer sans repayer un pipeline complet :
+
+```bash
 python3 main.py ingest       --project mon-client   # digère data/ uniquement
-python3 main.py design-only  --project mon-client   # relance le designer seul
+python3 main.py design-only  --project mon-client --replan   # redessine (voir ci-dessous)
+python3 main.py visuel       --project mon-client --corriger # juge le rendu et corrige
 python3 main.py validate     --project mon-client   # validateur seul (0 token)
-python3 main.py critique     --project mon-client   # contrôle du fond des textes (1 appel Haiku)
+python3 main.py critique     --project mon-client   # contrôle du fond des textes
 python3 main.py seo-only     --project mon-client   # métadonnées SEO seules
 
+python3 main.py diff         --project mon-client   # ce que le dernier run a changé (0 token)
+python3 main.py restore      --project mon-client   # annule le dernier run (0 token)
 python3 main.py list-agents                          # agents du registre
 ```
+
+> **`design-only` sans `--replan` rejoue l'ANCIEN plan.** Le plan porte le cahier
+> des charges depuis qu'il pilote la maquette : après toute modification de
+> `brief.md` ou `config.json`, `--replan` rafraîchit le plan pour quelques
+> centimes. Sans lui, tu paies une génération qui reproduit l'ancienne maquette.
 
 Prévisualiser le site généré :
 
@@ -100,6 +112,75 @@ Prévisualiser le site généré :
 cd projects/mon-client/output && python3 -m http.server 8080
 # → http://localhost:8080
 ```
+
+---
+
+## ⚠️ `output/` est jetable
+
+Chaque génération **écrase** `output/`. Toute correction faite à la main dedans
+disparaît au run suivant : la valeur doit remonter dans `brief.md` ou
+`config.json`, sinon elle n'existe pas. Un branchement Formspree posé à la main
+dans le HTML, par exemple, doit devenir `site.formspree_id` dans la config.
+
+Deux filets protègent les runs payants :
+
+- **Sauvegarde automatique** — avant chaque génération, `output/` est copié dans
+  `output_prev/`. `diff` montre ce qui a changé, `restore` revient en arrière.
+- **Contrôle de pré-vol** — si le site actuel contient un branchement absent de
+  la config, la commande le signale **avant** de dépenser quoi que ce soit.
+
+---
+
+## CSS moderne
+
+Les sites livrés sont en HTML/CSS/JS statique — c'est un choix, pas une limite :
+hébergement gratuit, chargement instantané, aucune dépendance à maintenir, et un
+livrable que le client peut déposer où il veut. La modernité est allée dans le
+**CSS**, pas dans un framework.
+
+Le designer a pour consigne d'employer, là où ils servent vraiment :
+
+| Outil | Ce qu'il apporte |
+|---|---|
+| `@layer` | Feuille rangée en couches — **et les correctifs visuels, écrits hors couche, l'emportent sans `!important`** |
+| Container queries | Un composant s'adapte à la largeur de **son conteneur**, pas de l'écran |
+| `:has()` | Mise en page qui réagit au contenu réel (`.card:has(img)`) |
+| `oklch()` + `color-mix()` | Système tonal dérivé de 3-4 couleurs, dégradés sans zone grisâtre |
+| `subgrid` | Titres et boutons alignés d'une carte à l'autre |
+| `text-wrap: balance` / `pretty` | Plus de lignes veuves ni de coupures disgracieuses |
+| Propriétés logiques | `margin-inline`, `padding-block`, `inset` |
+| `animation-timeline: view()` | Révélation au défilement sans JavaScript, sous `@supports` avec repli |
+
+Le point structurant est le premier. Sans couches, un correctif `.hero{…}` ajouté
+en fin de feuille **ne bat pas** un `.section .hero{…}` existant, plus spécifique —
+la correction automatique deviendrait un coup de dés. Avec les couches, une règle
+hors couche l'emporte sur toutes les couches, quelle que soit sa spécificité.
+
+Le validateur vérifie gratuitement ces exigences : `cascade_sans_layer`,
+`motion_non_geree` (absence de `prefers-reduced-motion`) et `cascade_forcee`
+(abus de `!important`) — trois avertissements non bloquants.
+
+---
+
+## Critique visuelle
+
+Le validateur prouve que le HTML est *valide* ; il ne dira jamais qu'il est *beau*.
+La commande `visuel` photographie le site rendu (Playwright, en local) à trois
+largeurs — mobile 390 px, tablette 820 px, bureau 1440 px — et soumet les images
+à un directeur artistique qui juge la conformité à la maquette, la composition,
+la typographie, les contrastes et le comportement responsive.
+
+```bash
+pip install playwright && playwright install chromium   # une seule fois
+python3 main.py visuel --project mon-client --corriger --tours 2
+```
+
+Le verdict arrive dans `temp/critique_visuelle.json` (score /10, conformité au
+brief, problèmes classés par gravité), les captures dans `logs/captures/`.
+
+**Seule la critique coûte des tokens** (~0,15 $ la passe) : les correctifs CSS
+qu'elle rédige sont appliqués mécaniquement, sans nouvel appel au modèle. Itérer
+sur le rendu revient donc à une fraction du prix d'une régénération complète.
 
 ---
 
@@ -112,9 +193,10 @@ projects/mon-client/
 ├── brief.md        # le cahier des charges en langage naturel
 ├── config.json     # config technique (sections, style, SEO, client)
 ├── data/           # données brutes fournies par le client (docx, pdf, images)
-├── output/         # site généré (HTML/CSS/JS)                    ← non versionné
+├── output/         # site généré (HTML/CSS/JS) — JETABLE          ← non versionné
+├── output_prev/    # sauvegarde du run précédent (diff / restore) ← non versionné
 ├── temp/           # fichiers d'échange inter-agents              ← non versionné
-└── logs/           # un log par agent, avec suivi des tokens      ← non versionné
+└── logs/           # un log par agent + captures d'écran          ← non versionné
 ```
 
 ### `config.json`
@@ -211,7 +293,8 @@ Le pipeline le mobilisera automatiquement selon le brief.
 ## Stack technique
 
 - **Python 3** — Typer (CLI), python-dotenv
-- **API Claude** (SDK `anthropic`) — Haiku 4.5 / Sonnet 4.6 / Opus 4.8 selon l'agent, raisonnement adaptatif
+- **API Claude** (SDK `anthropic`) — Opus 5 / Sonnet 5 / Haiku 4.5 selon l'agent, raisonnement adaptatif et `effort` réglable
+- **Playwright** (optionnel) — capture du rendu pour la critique visuelle
 - **Extraction** — pypdf, python-docx
 - **Sortie** — HTML5, CSS3, JavaScript vanilla (zéro dépendance front)
 

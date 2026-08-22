@@ -7,5 +7,11 @@ python-dotenv==1.2.1
 pypdf==6.1.1
 python-docx==1.2.0
 
+# Critique visuelle (optionnel) — pilote un navigateur pour photographier le
+# site généré. Après l'installation du paquet, télécharger le navigateur une
+# fois :  playwright install chromium
+# Sans lui, toutes les autres commandes fonctionnent normalement.
+playwright==1.62.0
+
 # Développement
 pytest==8.4.2

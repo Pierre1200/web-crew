@@ -33,7 +33,7 @@ def test_cahier_reprend_instruction_sections_et_note(proj):
         ],
         "_note_sections": "Corps en deux colonnes, gauche étroite.",
     })
-    cahier = DesignerAgent(proj)._cahier_des_charges(PLAN)
+    cahier = DesignerAgent(proj).cahier_des_charges(PLAN)
 
     # L'instruction destinée au designer, pas celle du copywriter
     assert "Page unique centrée" in cahier
@@ -57,7 +57,7 @@ def test_cahier_ramasse_toutes_les_notes_y_compris_sous_style(proj):
             "ambiance": "éditorial patiné",
         },
     })
-    cahier = DesignerAgent(proj)._cahier_des_charges(PLAN)
+    cahier = DesignerAgent(proj).cahier_des_charges(PLAN)
     assert "Page unique sans scroll." in cahier
     assert "PAS de formulaire de contact" in cahier
     # une valeur ordinaire de style n'est pas une consigne, elle ne remonte pas ici
@@ -67,11 +67,11 @@ def test_cahier_ramasse_toutes_les_notes_y_compris_sous_style(proj):
 def test_cahier_vide_si_projet_ne_decrit_rien(proj):
     _config(proj, {})
     plan_sans_designer = {"taches": [{"agent": "copywriter", "instruction": "x"}]}
-    assert DesignerAgent(proj)._cahier_des_charges(plan_sans_designer) == ""
+    assert DesignerAgent(proj).cahier_des_charges(plan_sans_designer) == ""
 
 
 def test_cahier_tolere_un_plan_incomplet(proj):
     """Un plan sans clé 'taches' ne doit pas faire planter le designer."""
     _config(proj, {"sections": ["Hero"]})
-    cahier = DesignerAgent(proj)._cahier_des_charges({})
+    cahier = DesignerAgent(proj).cahier_des_charges({})
     assert "1. Hero" in cahier

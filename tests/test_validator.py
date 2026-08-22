@@ -23,7 +23,17 @@ HTML_OK = """<!DOCTYPE html>
 </html>
 """
 
-CSS_OK = ".hero { color: red; } .texte { color: blue; }"
+# Feuille d'exemple conforme à ce que le designer doit produire : rangée en
+# couches (pour que les correctifs visuels puissent l'emporter) et respectant
+# le réglage système de réduction des animations.
+CSS_OK = """@layer reset, base, composants;
+@layer composants {
+  .hero { color: red; }
+  .texte { color: blue; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none; transition: none; }
+}"""
 JS_OK = "function f() { return 1; }"
 
 
@@ -143,6 +153,33 @@ def test_formulaire_avec_action_ok(proj):
     _site(proj, html=html)
     result = ValidatorAgent(proj).run({})
     assert "formulaire_sans_action" not in _types(result)
+
+
+def test_css_sans_layer_signale_en_warning(proj):
+    """Sans couches, les correctifs de la critique visuelle deviennent fragiles."""
+    _site(proj, css=".hero{color:red} .texte{color:blue} "
+                    "@media (prefers-reduced-motion: reduce){*{animation:none}}")
+    result = ValidatorAgent(proj).run({})
+    assert "cascade_sans_layer" in _types(result)
+    assert result["valide"] is True  # non bloquant : le site reste livrable
+
+
+def test_animations_non_neutralisables_signalees(proj):
+    _site(proj, css="@layer base; @layer base { .hero{color:red} .texte{color:blue} }")
+    result = ValidatorAgent(proj).run({})
+    assert "motion_non_geree" in _types(result)
+
+
+def test_abus_de_important_signale(proj):
+    _site(proj, css=CSS_OK + "\n" + "\n".join(f".c{i}{{color:red!important}}" for i in range(9)))
+    result = ValidatorAgent(proj).run({})
+    assert "cascade_forcee" in _types(result)
+
+
+def test_quelques_important_ne_declenchent_rien(proj):
+    _site(proj, css=CSS_OK + "\n.a{color:red!important}\n.b{color:blue!important}")
+    result = ValidatorAgent(proj).run({})
+    assert "cascade_forcee" not in _types(result)
 
 
 def _config_medias(proj, items):

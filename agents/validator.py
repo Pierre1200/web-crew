@@ -123,6 +123,44 @@ class ValidatorAgent(BaseAgent):
             self._pb("css_tronque", "erreur",
                      f"CSS possiblement tronqué : {ouvrantes} '{{' mais {fermantes} '}}'")
 
+    def check_css_moderne(self, css: str):
+        """Contrôle les exigences CSS que le prompt du designer impose.
+
+        Trois points objectifs, tous non bloquants — le site reste livrable,
+        mais chacun signale une feuille moins solide qu'elle ne devrait l'être.
+        """
+        if not css:
+            return
+
+        # Sans couches, les correctifs de la critique visuelle sont ajoutés hors
+        # couche mais ne l'emportent qu'à spécificité égale : la correction
+        # automatique devient un coup de dés.
+        if "@layer" not in css:
+            self._pb(
+                "cascade_sans_layer", "warning",
+                "CSS sans @layer — les correctifs visuels automatiques risquent "
+                "d'être battus par des règles existantes plus spécifiques",
+            )
+
+        # Accessibilité : certains visiteurs désactivent les animations au
+        # niveau du système, il faut que le site en tienne compte.
+        if "prefers-reduced-motion" not in css:
+            self._pb(
+                "motion_non_geree", "warning",
+                "Aucun @media (prefers-reduced-motion) — les animations "
+                "s'imposeront aux visiteurs qui les ont désactivées",
+            )
+
+        # !important est le symptôme d'une cascade qu'on ne maîtrise plus ;
+        # quelques-uns sont normaux (surcharges tierces), une dizaine non.
+        nb_important = css.count("!important")
+        if nb_important > 8:
+            self._pb(
+                "cascade_forcee", "warning",
+                f"{nb_important} !important dans le CSS — cascade mal maîtrisée, "
+                "les correctifs ultérieurs seront difficiles à appliquer",
+            )
+
     def check_viewport(self, html: str):
         """Vérifie la présence de la meta viewport — critique pour le responsive."""
         if html and '<meta name="viewport"' not in html:
@@ -222,6 +260,7 @@ class ValidatorAgent(BaseAgent):
         self.check_classes_coherentes(html, css)
         self.check_liens_fichiers(html)
         self.check_css_complet(css)
+        self.check_css_moderne(css)
         self.check_js_complet(js)
         self.check_formulaires(html)
         self.check_medias(html)
