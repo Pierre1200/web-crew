@@ -100,11 +100,38 @@ couche en fin de feuille, ce qui leur donne déjà la priorité sur tout le rest
 
 Réponds UNIQUEMENT en JSON valide, sans balise markdown."""
 
+    def _lire_direction(self) -> str:
+        """Relit la direction artistique arrêtée avant la génération.
+
+        C'est ce qui rend la critique précise plutôt que de simple bon goût :
+        au lieu de juger « en général », on vérifie que le rendu exécute les
+        décisions annoncées (archétype, rythme, palette, signature).
+        """
+        chemin = self.project.temp_dir / "direction.json"
+        if not chemin.exists():
+            return ""
+        try:
+            direction = self.read_json("temp/direction.json")
+        except (ValueError, OSError):
+            return ""
+        if not direction:
+            return ""
+        return f"""
+
+DIRECTION ARTISTIQUE QUI AVAIT ÉTÉ ARRÊTÉE — le rendu doit l'exécuter :
+{compact_json(direction)}
+
+Juge d'abord l'ÉCART entre ces décisions et ce que tu vois : archétype de mise
+en page réellement appliqué, rythme des sections conforme aux valeurs annoncées,
+usage de l'accent respecté, éléments animés limités à la liste fermée. Un écart
+avec la direction est au minimum « majeur ». Et si le rendu n'incarne pas la
+« signature » annoncée, dis-le franchement."""
+
     def _prompt_contexte(self, plan: dict) -> str:
         cahier = self.cahier_des_charges(plan)
         style_guide = plan.get("style_guide", {})
 
-        return f"""{cahier}
+        return f"""{cahier}{self._lire_direction()}
 
 Identité visuelle décidée pour ce projet :
 {compact_json(style_guide)}

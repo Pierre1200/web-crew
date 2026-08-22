@@ -11,6 +11,7 @@ from utils import snapshot
 from agents.base_agent import BaseAgent
 from agents.orchestrator import OrchestratorAgent
 from agents.ingestion import IngestionAgent
+from agents.direction import DirectionAgent
 from agents.copywriter import CopywriterAgent
 from agents.designer import DesignerAgent
 from agents.seo import SeoAgent
@@ -138,6 +139,25 @@ def _valider_en_fin_de_run(proj: Project):
     return resultat
 
 
+def _cadrer(proj: Project) -> dict:
+    """Orchestrateur puis direction artistique — le cadrage, avant l'exécution.
+
+    Deux étapes bon marché (~0,20 $ à elles deux) qui déterminent tout ce que
+    coûteront ensuite le copywriter et le designer. Les séparer de la
+    génération permet aussi de les rejouer seules après une retouche du brief.
+    """
+    orchestrator = OrchestratorAgent(proj)
+    plan = orchestrator.run({})
+    typer.echo(
+        f"📋 {len(plan['taches'])} agent(s) planifié(s) : "
+        f"{[t['agent'] for t in plan['taches']]}\n"
+    )
+
+    DirectionAgent(proj).run({})
+    typer.echo("")
+    return plan
+
+
 def _critique_visuelle(proj: Project, designer, tours: int, corriger: bool = True) -> dict:
     """Boucle « photographie → juge → corrige » sur le site rendu.
 
@@ -222,10 +242,7 @@ def generate(
     _sauvegarder(proj)
     _run_ingestion(proj)
 
-    orchestrator = OrchestratorAgent(proj)
-    plan = orchestrator.run({})
-    typer.echo(f"📋 {len(plan['taches'])} agent(s) planifié(s) : {[t['agent'] for t in plan['taches']]}\n")
-
+    plan = _cadrer(proj)
     _run_pipeline(proj, plan)
 
     typer.echo(f"\n✅ Pipeline complet — ouvre {proj.output_dir}/index.html")
@@ -258,10 +275,7 @@ def generate_safe(
     _sauvegarder(proj)
     _run_ingestion(proj)
 
-    orchestrator = OrchestratorAgent(proj)
-    plan = orchestrator.run({})
-    typer.echo(f"📋 {len(plan['taches'])} agent(s) planifié(s) : {[t['agent'] for t in plan['taches']]}\n")
-
+    plan = _cadrer(proj)
     instances = _run_pipeline(proj, plan)
 
     # Le designer est nécessaire pour la méthode fix() — on le récupère depuis les instances
@@ -359,12 +373,12 @@ def design_only(
     _sauvegarder(proj)
 
     if replan:
-        typer.echo("🎯 Rafraîchissement du plan (orchestrateur seul)...\n")
-        OrchestratorAgent(proj).run({})
+        typer.echo("🎯 Rafraîchissement du cadrage (plan + direction artistique)...\n")
+        _cadrer(proj)
     else:
         typer.echo(
-            "ℹ️  Plan existant réutilisé. Si tu viens de modifier brief.md ou "
-            "config.json, relance avec --replan.\n"
+            "ℹ️  Plan et direction artistique existants réutilisés. Si tu viens "
+            "de modifier brief.md ou config.json, relance avec --replan.\n"
         )
 
     typer.echo("🎨 Relance du designer...\n")
@@ -476,6 +490,46 @@ def critique(
     proj = _load_project(project_name)
     typer.echo(f"\n🧐 Critique de {proj.name}...\n")
     CritiqueAgent(proj).run({})
+    _afficher_conso()
+
+
+@app.command()
+def direction(
+    project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet"),
+    archetype: str = typer.Option(
+        "", "--archetype",
+        help="Force un archétype de mise en page au lieu de laisser l'agent choisir",
+    ),
+):
+    """Arrête la direction artistique du projet (~0,15 $).
+
+    L'itération la moins chère du pipeline : changer d'archétype puis relancer
+    `design-only` coûte une fraction d'une génération complète. Sans argument,
+    liste les archétypes disponibles en fin d'exécution.
+    """
+    from agents.direction import DirectionAgent, ARCHETYPES
+
+    if archetype and archetype not in ARCHETYPES:
+        typer.echo(f"❌ Archétype inconnu : {archetype!r}")
+        typer.echo("   Archétypes disponibles :")
+        for nom, desc in ARCHETYPES.items():
+            typer.echo(f"     • {nom} — {desc}")
+        raise typer.Exit(code=1)
+
+    proj = _load_project(project_name)
+    typer.echo(f"\n🎨 Direction artistique de {proj.name}...\n")
+
+    resultat = DirectionAgent(proj).run({})
+
+    if archetype and resultat.get("archetype") != archetype:
+        # On impose le choix de Pierre sans repayer un appel : le reste de la
+        # direction (palette, rythme, typographie) reste cohérent et utilisable.
+        resultat["archetype"] = archetype
+        DirectionAgent(proj).write_json("temp/direction.json", resultat)
+        typer.echo(f"   ↪ Archétype forcé sur : {archetype}")
+
+    typer.echo("\n   Appliquer cette direction : webcrew design-only -p "
+               f"{proj.name}")
     _afficher_conso()
 
 

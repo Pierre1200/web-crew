@@ -12,6 +12,29 @@ _SEP_HTML = "===HTML==="
 _SEP_CSS  = "===CSS==="
 _SEP_JS   = "===JS==="
 
+# Repli quand aucune direction artistique n'a été arrêtée : des principes
+# généraux, valables pour tout projet. Dès qu'une direction existe, elle les
+# remplace par des DÉCISIONS chiffrées propres au client — un conseil vague
+# vaut toujours moins qu'une valeur précise.
+_PRINCIPES_GENERIQUES = """
+
+PRINCIPES DE COMPOSITION — c'est ce qui sépare un site travaillé d'un gabarit :
+- Rythme vertical VARIABLE : toutes les sections n'ont pas la même respiration. \
+Alterne blocs denses et blocs aérés plutôt qu'un padding uniforme partout.
+- Une seule chose domine par écran. Trois éléments de poids égal qui se disputent \
+l'attention, c'est une page morte.
+- Échelle d'espacement à sauts francs (8 / 16 / 24 / 40 / 64 / 96 / 160), pas une \
+suite de multiples de 1rem qui aplatit tout.
+- Largeur de lecture limitée (~68 caractères) sur les paragraphes. Les titres \
+peuvent dépasser, le corps de texte jamais.
+- Composition assumée : si la maquette impose une asymétrie, ne la recentre pas.
+- Matière et profondeur : bordures fines, tons superposés, légère texture. \
+Évite l'ombre portée générique posée sur chaque carte.
+- Typographie soignée : interlettrage resserré sur les grands titres, interligne \
+généreux sur le corps, contraste de graisses assumé.
+- Mouvement SÉLECTIF : deux ou trois éléments animés qui le méritent, jamais \
+toutes les sections. Toujours neutralisé sous @media (prefers-reduced-motion: reduce)."""
+
 
 class DesignerAgent(BaseAgent):
     """Génère le HTML, CSS et JS du site en une seule requête cohérente."""
@@ -128,6 +151,64 @@ class DesignerAgent(BaseAgent):
   affiche un message honnête invitant à contacter directement par email ou
   téléphone (utilise les coordonnées présentes dans les textes si disponibles)."""
         return regles_html, regles_js
+
+    def lire_direction(self) -> dict:
+        """Relit temp/direction.json produit par l'agent Direction artistique.
+
+        Retourne {} si l'étape n'a pas tourné — le designer retombe alors sur
+        ses principes de composition génériques, comme avant P1.
+        """
+        chemin = self.project.temp_dir / "direction.json"
+        if not chemin.exists():
+            return {}
+        try:
+            direction = self.read_json("temp/direction.json")
+        except (ValueError, OSError) as e:
+            self.logger.warning(f"direction.json illisible, ignoré : {e}")
+            return {}
+        return direction or {}
+
+    def _bloc_direction(self) -> tuple[str, str]:
+        """Prépare la direction artistique pour le prompt.
+
+        Retourne (bloc de décisions, bloc de principes). Le second est le
+        rappel générique d'avant P1 : il n'est renvoyé QUE si aucune direction
+        n'a été arrêtée. Sinon des décisions chiffrées remplacent des conseils
+        vagues, et le prompt ne gonfle pas — il se précise.
+        """
+        direction = self.lire_direction()
+
+        if not direction:
+            self.logger.info("Aucune direction artistique — principes génériques")
+            return "", _PRINCIPES_GENERIQUES
+
+        archetype = direction.get("archetype", "")
+        self.logger.info(f"Direction artistique appliquée — archétype {archetype!r}")
+        typer.echo(f"   🎨 Direction : {archetype}")
+
+        pieges = direction.get("pieges_a_eviter") or []
+        bloc_pieges = ""
+        if pieges:
+            bloc_pieges = "\nPièges propres à CE projet, à éviter absolument :\n" + \
+                "\n".join(f"- {p}" for p in pieges)
+
+        return f"""
+
+DIRECTION ARTISTIQUE ARRÊTÉE POUR CE PROJET — ce sont des décisions, pas des \
+suggestions. Applique-les à la lettre : les valeurs d'espacement, l'échelle \
+typographique et la palette sont celles-ci, pas d'autres.
+{compact_json({k: v for k, v in direction.items() if k != 'pieges_a_eviter'})}
+
+Lecture de ces décisions :
+- `archetype` commande la mise en page d'ensemble ; il prime sur toute \
+convention par défaut, mais reste soumis au cahier des charges du client.
+- `palette.variables` et `palette.derivations` se transcrivent tels quels dans \
+`:root` ; respecte `usage_accent` — un accent partout ne fait plus accent.
+- `espacement.rythme_sections` donne la respiration de CHAQUE section : c'est \
+ce qui crée le rythme, ne l'uniformise pas.
+- `mouvement.elements_animes` est une liste FERMÉE : rien d'autre ne s'anime.
+- `signature` est l'objectif : si le rendu final pourrait appartenir à un autre \
+client, c'est raté.{bloc_pieges}""", ""
 
     def _bloc_images(self) -> tuple[str, bool]:
         """Copie les vraies images du client et prépare leur consigne d'intégration.
@@ -271,6 +352,7 @@ s'adapte au nombre d'éléments, elle ne suppose pas un compte fixe.
         regles_form_html, regles_form_js = self._regles_formulaires()
         bloc_medias = self._bloc_medias()
         bloc_images, a_des_images = self._bloc_images()
+        bloc_direction, bloc_principes = self._bloc_direction()
 
         # Quand le client a fourni ses photos, une image de remplissage sur la
         # page livrée est un défaut. Sans photo fournie, elle reste nécessaire.
@@ -309,7 +391,7 @@ Règle absolue : aucun texte avant {_SEP_HTML}, aucun texte après le dernier bl
 Aucune explication. Si la génération est interrompue et reprise, continue directement \
 le code sans rien résumer."""
 
-        user_message = f"""{cahier}
+        user_message = f"""{cahier}{bloc_direction}
 
 IDENTITÉ VISUELLE (couleurs et polices décidées pour ce projet) :
 {compact_json(style_guide)}
@@ -365,22 +447,7 @@ leurs équivalents physiques.
 - Révélation au défilement : `animation-timeline: view()` encadré par \
 `@supports (animation-timeline: view())`, avec repli JavaScript sinon.
 
-PRINCIPES DE COMPOSITION — c'est ce qui sépare un site travaillé d'un gabarit :
-- Rythme vertical VARIABLE : toutes les sections n'ont pas la même respiration. \
-Alterne blocs denses et blocs aérés plutôt qu'un padding uniforme partout.
-- Une seule chose domine par écran. Trois éléments de poids égal qui se disputent \
-l'attention, c'est une page morte.
-- Échelle d'espacement à sauts francs (8 / 16 / 24 / 40 / 64 / 96 / 160), pas une \
-suite de multiples de 1rem qui aplatit tout.
-- Largeur de lecture limitée (~68 caractères) sur les paragraphes. Les titres \
-peuvent dépasser, le corps de texte jamais.
-- Composition assumée : si la maquette impose une asymétrie, ne la recentre pas.
-- Matière et profondeur : bordures fines, tons superposés, légère texture. \
-Évite l'ombre portée générique posée sur chaque carte.
-- Typographie soignée : interlettrage resserré sur les grands titres, interligne \
-généreux sur le corps, contraste de graisses assumé.
-- Mouvement SÉLECTIF : deux ou trois éléments animés qui le méritent, jamais \
-toutes les sections. Toujours neutralisé sous @media (prefers-reduced-motion: reduce).
+{bloc_principes}
 
 À ÉVITER — signature immédiate d'un site généré à la chaîne :
 hero 100vh systématique, fade-in sur chaque section, trois cartes à ombre \
@@ -504,7 +571,9 @@ Commence directement par <!DOCTYPE html> et termine obligatoirement par </body><
             "avec un mot-clé tiré du contexte de l'image (minuscules, sans accent)."
         )
 
-        user_message = f"""{cahier}
+        bloc_direction, _ = self._bloc_direction()
+
+        user_message = f"""{cahier}{bloc_direction}
 
 Régénère l'index.html complet de ce site, en réutilisant le CSS déjà produit.
 

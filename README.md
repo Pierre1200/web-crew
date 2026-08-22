@@ -48,6 +48,7 @@ Chaque agent tourne sur le modèle et la profondeur de raisonnement adaptés à 
 |---|---|---|---|---|
 | **Ingestion** | Digère les données client brutes (docx/pdf/images) en contexte structuré | Sonnet 5 | ✅ | high |
 | **Orchestrateur** | Lit le brief, transcrit la maquette, produit le plan de travail | Sonnet 5 | ✅ | high |
+| **Direction artistique** | Arrête l'archétype, la palette, le rythme et la typographie | Opus 5 | ✅ | **xhigh** |
 | **Copywriter** | Rédige tous les textes du site à partir du contenu réel | Opus 5 | ✅ | high |
 | **Designer** | Génère HTML + CSS + JS cohérents en une passe | Opus 5 | ✅ | **xhigh** |
 | **Validateur** | Contrôle qualité pur Python (HTML complet, classes cohérentes, médias…) | — *(0 token)* | — | — |
@@ -79,7 +80,7 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
 ## Utilisation
 
 ```bash
-# Pipeline complet : ingestion → orchestrateur → copywriter → designer → SEO
+# Pipeline complet : ingestion → orchestrateur → direction → copywriter → designer → SEO
 python3 main.py generate --project mon-client
 
 # Le chemin recommandé : génération + correction auto + 2 passes de critique visuelle
@@ -91,6 +92,7 @@ python3 main.py generate-safe --project mon-client --visuel 2
 ```bash
 python3 main.py ingest       --project mon-client   # digère data/ uniquement
 python3 main.py design-only  --project mon-client --replan   # redessine (voir ci-dessous)
+python3 main.py direction    --project mon-client   # rejoue la direction artistique seule
 python3 main.py visuel       --project mon-client --corriger # juge le rendu et corrige
 python3 main.py validate     --project mon-client   # validateur seul (0 token)
 python3 main.py critique     --project mon-client   # contrôle du fond des textes
@@ -128,6 +130,52 @@ Deux filets protègent les runs payants :
   `output_prev/`. `diff` montre ce qui a changé, `restore` revient en arrière.
 - **Contrôle de pré-vol** — si le site actuel contient un branchement absent de
   la config, la commande le signale **avant** de dépenser quoi que ce soit.
+
+---
+
+## Direction artistique
+
+Avant qu'une seule ligne de code soit écrite, un agent **arrête la composition
+du site** et l'écrit dans `temp/direction.json`. Séparer la décision de
+l'exécution change tout : auparavant, les choix de mise en page étaient pris
+implicitement par le designer, au milieu de la génération de 25 000 tokens de
+code — le pire moment pour décider quoi que ce soit.
+
+La direction produit des **décisions chiffrées**, pas des conseils. « Varier le
+rythme vertical » ne sert à rien ; `{"hero": "160px, très aéré", "contact":
+"64px, dense"}` est applicable tel quel.
+
+```bash
+python3 main.py direction --project mon-client
+python3 main.py direction --project mon-client --archetype galerie-grille
+```
+
+L'archétype de mise en page est choisi dans un vocabulaire fermé, ce qui force
+un vrai parti pris au lieu du réflexe « sections empilées » :
+
+| Archétype | Parti pris |
+|---|---|
+| `editorial-asymetrique` | Deux colonnes inégales, rythme de magazine |
+| `cinematique-plein-ecran` | Grandes images, texte rare et fort |
+| `galerie-grille` | La grille d'images **est** la structure |
+| `document-centre` | Une colonne étroite, typographie dominante |
+| `panneau-fixe` | Une colonne fixe, une colonne qui défile |
+| `vitrine-sectionnee` | Le classique — à ne choisir que s'il est le plus juste |
+
+La direction décide aussi la palette (en `oklch` avec ses dérivations), l'échelle
+typographique, le traitement des surfaces, la politique de mouvement (liste
+**fermée** de ce qui s'anime), et une **signature** : ce qui, dans ce site, ne
+pourrait appartenir à aucun autre client.
+
+Trois conséquences en chaîne :
+
+- **Le designer** reçoit ces valeurs à la place des principes génériques — le
+  prompt ne grossit pas, il se précise (+100 tokens environ).
+- **La critique visuelle** juge l'**écart** entre les décisions annoncées et le
+  rendu réel, au lieu de donner un avis de goût. Un écart avec la direction est
+  au minimum « majeur ».
+- **L'itération devient bon marché** : changer d'archétype et relancer
+  `design-only` coûte une fraction d'une génération complète.
 
 ---
 
