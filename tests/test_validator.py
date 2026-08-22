@@ -182,6 +182,69 @@ def test_quelques_important_ne_declenchent_rien(proj):
     assert "cascade_forcee" not in _types(result)
 
 
+def _asset(proj, nom, donnees=b"\x89PNG\r\n\x1a\n" + b"\x00" * 40):
+    dossier = proj.output_dir / "assets"
+    dossier.mkdir(parents=True, exist_ok=True)
+    (dossier / nom).write_bytes(donnees)
+
+
+def test_image_referencee_mais_absente_est_une_erreur(proj):
+    html = HTML_OK.replace("<body>", '<body><img src="assets/portrait.jpg" alt="x">')
+    _site(proj, html=html)
+    result = ValidatorAgent(proj).run({})
+    pbs = [p for p in result["problemes"] if p["type"] == "ressource_cassee"]
+    assert len(pbs) == 1
+    assert "assets/portrait.jpg" in pbs[0]["message"]
+    assert result["valide"] is False
+
+
+def test_image_presente_et_utilisee_ne_signale_rien(proj):
+    _asset(proj, "portrait.jpg")
+    html = HTML_OK.replace("<body>", '<body><img src="assets/portrait.jpg" alt="x">')
+    _site(proj, html=html)
+    result = ValidatorAgent(proj).run({})
+    assert "ressource_cassee" not in _types(result)
+    assert "image_inutilisee" not in _types(result)
+
+
+def test_image_client_jamais_affichee_est_signalee(proj):
+    _asset(proj, "logo-client.png")
+    _site(proj)
+    result = ValidatorAgent(proj).run({})
+    pbs = [p for p in result["problemes"] if p["type"] == "image_inutilisee"]
+    assert len(pbs) == 1 and "logo-client.png" in pbs[0]["message"]
+    assert result["valide"] is True  # avertissement, pas blocage
+
+
+def test_placeholder_alors_que_le_client_a_fourni_ses_images(proj):
+    _asset(proj, "vraie-photo.jpg")
+    html = HTML_OK.replace(
+        "<body>",
+        '<body><img src="assets/vraie-photo.jpg" alt="a">'
+        '<img src="https://picsum.photos/seed/x/800/600" alt="b">',
+    )
+    _site(proj, html=html)
+    result = ValidatorAgent(proj).run({})
+    assert "placeholder_en_production" in _types(result)
+
+
+def test_placeholder_seul_ne_declenche_rien(proj):
+    """Sans image fournie par le client, le remplissage reste légitime."""
+    html = HTML_OK.replace(
+        "<body>", '<body><img src="https://picsum.photos/seed/x/800/600" alt="b">'
+    )
+    _site(proj, html=html)
+    result = ValidatorAgent(proj).run({})
+    assert "placeholder_en_production" not in _types(result)
+
+
+def test_image_de_fond_css_verifiee_aussi(proj):
+    _site(proj, css=CSS_OK + '\n.hero{background-image:url("assets/fond.jpg")}')
+    result = ValidatorAgent(proj).run({})
+    pbs = [p for p in result["problemes"] if p["type"] == "ressource_cassee"]
+    assert any("assets/fond.jpg" in p["message"] for p in pbs)
+
+
 def _config_medias(proj, items):
     (proj.root / "config.json").write_text(
         json.dumps({"site": {"medias": {"items": items}}}, ensure_ascii=False),

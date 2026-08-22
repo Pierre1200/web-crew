@@ -4,6 +4,7 @@ from agents.base_agent import BaseAgent
 from utils.project import Project
 from utils.cleaners import clean_code_output, extract_css_classes, strip_markdown_fences, compact_json
 from utils.embeds import construire_manifeste
+from utils.images import preparer_assets, images_lourdes
 
 _FORM_KEYWORDS = {"contact", "newsletter", "reserver", "formulaire", "rdv", "inscription"}
 
@@ -128,6 +129,54 @@ class DesignerAgent(BaseAgent):
   téléphone (utilise les coordonnées présentes dans les textes si disponibles)."""
         return regles_html, regles_js
 
+    def _bloc_images(self) -> tuple[str, bool]:
+        """Copie les vraies images du client et prépare leur consigne d'intégration.
+
+        Retourne (bloc de prompt, existe_des_images_reelles). Le second sert à
+        décider si les images de remplissage restent autorisées : quand le
+        client a fourni ses photos, un picsum.photos sur la page est un défaut,
+        pas une commodité.
+        """
+        manifeste = preparer_assets(self.project, self.lire_contexte_ingestion())
+        if not manifeste:
+            self.logger.info("Aucune image client — images de remplissage utilisées")
+            return "", False
+
+        for lourde in images_lourdes(manifeste):
+            message = (
+                f"{lourde['fichier']} pèse {lourde['poids_ko']} ko — "
+                "à compresser avant livraison"
+            )
+            self.logger.warning(message)
+            typer.echo(f"   ⚠️  {message}")
+
+        typer.echo(f"   🖼  {len(manifeste)} image(s) client copiée(s) dans output/assets/")
+        self.logger.info(
+            f"{len(manifeste)} image(s) réelle(s) : "
+            + ", ".join(i["chemin_web"] for i in manifeste)
+        )
+
+        return f"""
+
+IMAGES RÉELLES DU CLIENT — {len(manifeste)} fichier(s) déjà copiés dans output/assets/ :
+{compact_json(manifeste)}
+
+Règles d'intégration des images (strictes) :
+- Utilise ces images EN PRIORITÉ. `src` reprend exactement le champ chemin_web \
+(chemin relatif, tel quel) — n'invente aucun autre chemin, aucune autre extension.
+- `width` et `height` reprennent les dimensions réelles indiquées. Elles réservent \
+la place avant chargement et empêchent la page de sauter sous les yeux du visiteur.
+- Respecte l'orientation : une image "portrait" ne se met pas dans un cadre \
+panoramique. Cadre selon le champ ratio, et si tu recadres, fais-le avec \
+object-fit: cover sans jamais déformer.
+- `alt` décrit ce que montre l'image, en t'appuyant sur son nom d'origine et sur \
+le champ description quand il existe — jamais « image » ni le nom du fichier brut.
+- Place chaque image dans la section indiquée par section_suggeree quand ce champ \
+est renseigné.
+- Ajoute loading="lazy" sauf sur la première image visible (au-dessus de la ligne \
+de flottaison), qui doit charger immédiatement.
+- Un logo se place tel quel, sans recadrage ni filtre.""", True
+
     def _bloc_medias(self) -> str:
         """Prépare la galerie vidéo/audio à intégrer, si le projet en déclare une.
 
@@ -221,6 +270,25 @@ s'adapte au nombre d'éléments, elle ne suppose pas un compte fixe.
         )
         regles_form_html, regles_form_js = self._regles_formulaires()
         bloc_medias = self._bloc_medias()
+        bloc_images, a_des_images = self._bloc_images()
+
+        # Quand le client a fourni ses photos, une image de remplissage sur la
+        # page livrée est un défaut. Sans photo fournie, elle reste nécessaire.
+        # Chaîne simple, pas f-string : les accolades s'écrivent donc en simple.
+        # (En f-string il faudrait les doubler, et c'est justement ce qui avait
+        # laissé passer un « {{mot-clé}} » littéral dans le prompt.)
+        regle_placeholder = (
+            "\n- Images de remplissage : à n'utiliser QUE si aucune image réelle "
+            "ci-dessus ne convient à un emplacement. Format "
+            'src="https://picsum.photos/seed/{mot-clé}/{largeur}/{hauteur}" '
+            "avec la classe img-placeholder. Chaque remplissage devra être "
+            "remplacé avant livraison : n'en mets pas par confort."
+            if a_des_images else
+            '\n- Images d\'illustration : src="https://picsum.photos/seed/'
+            '{mot-clé}/{largeur}/{hauteur}" avec un mot-clé court tiré du '
+            "contexte (minuscules, sans accent) et la classe img-placeholder — "
+            "ratio adapté au cadrage voulu (4/3 → 800/600, 16/9 → 800/450)"
+        )
 
         system_prompt = f"""\
 Tu es directeur artistique ET intégrateur front-end.
@@ -248,7 +316,7 @@ IDENTITÉ VISUELLE (couleurs et polices décidées pour ce projet) :
 
 CONTENU RÉDIGÉ À INTÉGRER — une clé par bloc, à placer dans la structure demandée :
 {compact_json(textes)}
-{bloc_medias}
+{bloc_images}{bloc_medias}
 
 {structure_note}
 
@@ -262,10 +330,8 @@ content="width=device-width, initial-scale=1.0"> dans le <head>{fonts_html_note}
 - Classes BEM, strictement cohérentes entre le HTML et le CSS
 - Accessibilité : un seul <h1>, hiérarchie de titres sans saut, alt décrivant \
 chaque image, focus visible au clavier, contraste texte/fond conforme WCAG AA
-- Chaque <img> porte width et height (évite le décalage au chargement)
-- Images d'illustration : src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" \
-avec un mot-clé court tiré du contexte (minuscules, sans accent) et la classe \
-img-placeholder — ratio adapté au cadrage voulu (4/3 → 800/600, 16/9 → 800/450){regles_form_html}
+- Chaque <img> porte width et height (évite le décalage au chargement)\
+{regle_placeholder}{regles_form_html}
 - CSS : variables dans :root (couleurs, polices, échelle d'espacement), reset \
 minimal en tête, mobile-first{fonts_css_note}
 - CSS rangé en couches déclarées en TÊTE de feuille : \
@@ -429,6 +495,14 @@ Commence directement par <!DOCTYPE html> et termine obligatoirement par </body><
 
         regles_form_html, _ = self._regles_formulaires()
         bloc_medias = self._bloc_medias()
+        bloc_images, a_des_images = self._bloc_images()
+        regle_placeholder = (
+            "Images de remplissage : uniquement si aucune image réelle ci-dessus "
+            "ne convient."
+            if a_des_images else
+            'Images : src="https://picsum.photos/seed/{mot-clé}/{largeur}/{hauteur}" '
+            "avec un mot-clé tiré du contexte de l'image (minuscules, sans accent)."
+        )
 
         user_message = f"""{cahier}
 
@@ -436,7 +510,7 @@ Régénère l'index.html complet de ce site, en réutilisant le CSS déjà produ
 
 Classes CSS disponibles — utilise UNIQUEMENT celles-ci, n'en invente aucune :
 {classes_str}
-{bloc_medias}
+{bloc_images}{bloc_medias}
 
 {structure_note}
 
@@ -447,7 +521,7 @@ OBLIGATOIRE dans le <head> :
 OBLIGATOIRE : <script src="main.js"></script> avant </body>
 INTERDIT : balise <style>, CSS inline
 Accessibilité : un seul <h1>, alt sur chaque image, width et height sur chaque <img>
-Images : src="https://picsum.photos/seed/{{mot-clé}}/{{largeur}}/{{hauteur}}" avec un mot-clé tiré du contexte de l'image (minuscules, sans accent, tirets autorisés).{regles_form_html}
+{regle_placeholder}{regles_form_html}
 
 Textes à intégrer :
 {compact_json(textes)}"""

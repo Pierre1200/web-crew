@@ -9,6 +9,7 @@ import typer
 from pathlib import Path
 from agents.base_agent import BaseAgent
 from utils.extractors import extract_text, EXTRACTORS
+from utils.images import dimensions
 from utils.cleaners import compact_json
 
 # Extensions d'images qu'on catalogue (sans les lire)
@@ -121,15 +122,31 @@ class IngestionAgent(BaseAgent):
 
     # ── ÉTAPE 3 : CATALOGAGE IMAGES (zéro token) ───────────────────
     def _cataloguer_images(self, fichiers: list[Path]) -> list[dict]:
-        """Recense les images sans les lire (nom, chemin, taille)."""
+        """Recense les images avec leurs dimensions réelles (zéro token).
+
+        L'orientation est déterminante pour suggérer un emplacement : un
+        portrait vertical n'a pas la même place qu'un panoramique. On lit donc
+        l'en-tête de chaque fichier, sans jamais charger l'image entière.
+        """
         images = []
         for f in fichiers:
-            if f.suffix.lower() in IMAGE_EXTENSIONS:
-                images.append({
-                    "nom": f.name,
-                    "chemin": str(f.relative_to(self.project.data_dir)),
-                    "taille_ko": round(f.stat().st_size / 1024, 1),
-                })
+            if f.suffix.lower() not in IMAGE_EXTENSIONS:
+                continue
+            entree = {
+                "nom": f.name,
+                "chemin": str(f.relative_to(self.project.data_dir)),
+                "taille_ko": round(f.stat().st_size / 1024, 1),
+            }
+            taille = dimensions(f)
+            if taille:
+                largeur, hauteur = taille
+                entree["dimensions"] = f"{largeur}x{hauteur}"
+                entree["orientation"] = (
+                    "paysage" if largeur > hauteur * 1.05
+                    else "portrait" if hauteur > largeur * 1.05
+                    else "carré"
+                )
+            images.append(entree)
         return images
 
     # ── ÉTAPE 4 : TRI INTELLIGENT (IA) ─────────────────────────────

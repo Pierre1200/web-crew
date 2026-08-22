@@ -75,3 +75,31 @@ def test_cahier_tolere_un_plan_incomplet(proj):
     _config(proj, {"sections": ["Hero"]})
     cahier = DesignerAgent(proj).cahier_des_charges({})
     assert "1. Hero" in cahier
+
+
+def test_pas_d_accolades_doublees_dans_le_prompt(proj, monkeypatch):
+    """Le gabarit picsum doit arriver en {mot-clé}, pas en {{mot-clé}}.
+
+    Les règles d'images sont construites en chaîne simple puis insérées dans
+    une f-string : y doubler les accolades laisserait un littéral dans le
+    prompt, et le modèle écrirait des URL d'images invalides.
+    """
+    _config(proj, {"sections": ["Hero"]})
+    (proj.temp_dir / "textes.json").write_text('{"hero": {"accroche": "x"}}', encoding="utf-8")
+    (proj.temp_dir / "plan.json").write_text(json.dumps(PLAN), encoding="utf-8")
+
+    capture = {}
+
+    def faux_appel(self, system, user, max_tokens=0, **kwargs):
+        capture["user"] = user
+        raise SystemExit
+
+    monkeypatch.setattr(DesignerAgent, "call_claude_continuable", faux_appel)
+    designer = DesignerAgent(proj)
+    try:
+        designer._generate_site(PLAN, {"hero": {"accroche": "x"}})
+    except SystemExit:
+        pass
+
+    assert "{{" not in capture["user"]
+    assert "{mot-clé}" in capture["user"]

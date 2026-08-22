@@ -131,6 +131,36 @@ Deux filets protègent les runs payants :
 
 ---
 
+## Les vraies images du client
+
+Tout fichier image déposé dans `data/` est **copié automatiquement** dans
+`output/assets/` sous un nom compatible URL (`Portrait Denis Moulin.jpg` →
+`portrait-denis-moulin.jpg`), et ses **dimensions réelles sont lues** en
+décodant l'en-tête du fichier — PNG, JPEG, GIF, WebP et SVG, en Python pur,
+sans dépendance ni appel IA.
+
+Le designer reçoit alors un manifeste (chemin, dimensions, ratio, orientation,
+poids) et doit s'en servir **en priorité** : les images de remplissage
+`picsum.photos` ne sont tolérées que là où aucune photo du client ne convient.
+
+Pourquoi les dimensions comptent : sans `width` et `height` sur une balise
+`<img>`, le navigateur ne connaît la place à réserver qu'une fois l'image
+chargée, et la page **saute** sous les yeux du visiteur. C'est le défaut le plus
+visible d'un site amateur, et il se corrige avec deux attributs.
+
+Les images déjà déposées à la main dans `output/assets/` (un logo fourni, par
+exemple) sont reprises dans le manifeste, jamais ignorées.
+
+Le validateur contrôle ensuite, gratuitement :
+
+| Problème | Niveau | Ce qu'il attrape |
+|---|---|---|
+| `ressource_cassee` | erreur | Une image ou un script référencé dont le fichier n'existe pas |
+| `image_inutilisee` | avertissement | Une photo fournie par le client jamais affichée |
+| `placeholder_en_production` | avertissement | Du remplissage alors que le client a fourni ses visuels |
+
+---
+
 ## CSS moderne
 
 Les sites livrés sont en HTML/CSS/JS statique — c'est un choix, pas une limite :

@@ -1,10 +1,12 @@
 from __future__ import annotations
 import re
 import typer
+from pathlib import Path
 from agents.base_agent import BaseAgent
 from utils.project import Project
 from utils.cleaners import extract_css_classes
 from utils.embeds import construire_manifeste
+from utils.images import EXTENSIONS_IMAGES
 
 # Classes ajoutées dynamiquement par main.js — absentes du CSS statique, c'est normal
 _JS_DYNAMIC_CLASSES = {"visible", "scrolled", "open", "active", "loaded", "is-open", "is-active"}
@@ -220,6 +222,65 @@ class ValidatorAgent(BaseAgent):
                     media=media["titre"],
                 )
 
+    def check_images(self, html: str, css: str):
+        """Contrôle les vraies images du client : liens cassés, oubliées, remplissage.
+
+        Inspection pure — le validateur ne copie ni ne modifie rien, il compare
+        ce que le HTML référence à ce qui existe réellement sur le disque.
+        """
+        if not html:
+            return
+
+        output = self.project.output_dir
+        dossier_assets = output / "assets"
+
+        # 1. Tous les chemins locaux référencés (src du HTML + url() du CSS)
+        references = set(re.findall(r'src="([^"]+)"', html))
+        references |= set(re.findall(r'url\(\s*["\']?([^"\')]+)', css or ""))
+        locales = {
+            r.split("?")[0].split("#")[0]
+            for r in references
+            if r and not r.startswith(("http://", "https://", "data:", "//"))
+        }
+
+        # 2. Un lien local qui ne pointe sur rien : image ou script manquant,
+        #    donc visuellement cassé chez le client. Couvre src d'<img> ET de
+        #    <script>, d'où un nom de problème volontairement générique.
+        for reference in sorted(locales):
+            if not (output / reference).exists():
+                self._pb(
+                    "ressource_cassee", "erreur",
+                    f"Ressource introuvable : {reference} est référencée dans "
+                    "le site mais le fichier n'existe pas dans output/",
+                    fichier=reference,
+                )
+
+        # 3. Une image fournie par le client mais jamais affichée
+        if dossier_assets.is_dir():
+            fichiers_utilises = {Path(r).name for r in locales}
+            for fichier in sorted(dossier_assets.iterdir()):
+                if (fichier.is_file()
+                        and fichier.suffix.lower() in EXTENSIONS_IMAGES
+                        and fichier.name not in fichiers_utilises):
+                    self._pb(
+                        "image_inutilisee", "warning",
+                        f"Image client jamais affichée : {fichier.name}",
+                        fichier=fichier.name,
+                    )
+
+        # 4. Du remplissage alors que le client a fourni ses propres visuels
+        nb_placeholders = html.count("picsum.photos")
+        a_des_images_reelles = dossier_assets.is_dir() and any(
+            f.suffix.lower() in EXTENSIONS_IMAGES
+            for f in dossier_assets.iterdir() if f.is_file()
+        )
+        if nb_placeholders and a_des_images_reelles:
+            self._pb(
+                "placeholder_en_production", "warning",
+                f"{nb_placeholders} image(s) de remplissage alors que le client "
+                "a fourni ses propres visuels — à remplacer avant livraison",
+            )
+
     def check_textes_complets(self):
         """Vérifie que chaque section de textes.json contient bien du contenu.
 
@@ -263,6 +324,7 @@ class ValidatorAgent(BaseAgent):
         self.check_css_moderne(css)
         self.check_js_complet(js)
         self.check_formulaires(html)
+        self.check_images(html, css)
         self.check_medias(html)
         self.check_textes_complets()
 
