@@ -48,11 +48,39 @@ def extract_docx(path: Path) -> str:
     return "\n".join(p.text for p in doc.paragraphs if p.text)
 
 
+def extract_odt(path: Path) -> str:
+    """Extrait le texte d'un document LibreOffice / OpenOffice.
+
+    Un .odt est une archive ZIP dont le texte vit dans content.xml. Chaque
+    paragraphe est un <text:p>, chaque titre un <text:h>, et le texte réel
+    peut être découpé en <text:span> imbriqués dès qu'un mot est en gras.
+    D'où itertext(), qui ramasse tout le texte d'un sous-arbre au lieu de
+    lire le seul contenu direct de la balise.
+
+    Aucune dépendance : zipfile et ElementTree sont dans la bibliothèque
+    standard, contrairement au .docx qui passe par python-docx.
+    """
+    import xml.etree.ElementTree as ET
+
+    with zipfile.ZipFile(path) as archive:
+        racine = ET.fromstring(archive.read("content.xml"))
+
+    ns = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
+    lignes = []
+    for bloc in racine.iter():
+        if bloc.tag in (f"{ns}p", f"{ns}h"):
+            texte = "".join(bloc.itertext()).strip()
+            if texte:
+                lignes.append(texte)
+    return "\n".join(lignes)
+
+
 EXTRACTORS = {
     ".txt": extract_txt,
     ".md": extract_txt,
     ".pdf": extract_pdf,
     ".docx": extract_docx,
+    ".odt": extract_odt,
 }
 
 
@@ -88,9 +116,23 @@ def _images_pdf(path: Path) -> list[tuple[str, bytes]]:
     return images
 
 
+def _images_odt(path: Path) -> list[tuple[str, bytes]]:
+    """Images embarquées dans un .odt, rangées dans Pictures/."""
+    images = []
+    with zipfile.ZipFile(path) as archive:
+        for nom in sorted(archive.namelist()):
+            if not nom.startswith("Pictures/"):
+                continue
+            if Path(nom).suffix.lower() not in _FORMATS_IMAGES_UTILES:
+                continue
+            images.append((Path(nom).name, archive.read(nom)))
+    return images
+
+
 EXTRACTEURS_IMAGES = {
     ".docx": _images_docx,
     ".pdf": _images_pdf,
+    ".odt": _images_odt,
 }
 
 

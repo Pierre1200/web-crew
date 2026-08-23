@@ -152,8 +152,12 @@ def dimensions_depuis_octets(donnees: bytes) -> tuple[int, int] | None:
 
     Séparé de `dimensions()` pour servir aussi aux images extraites d'un
     document Word ou PDF, qui n'ont pas encore de fichier sur le disque.
+
+    Le tampon n'est pas tronqué. Un JPEG range ses dimensions après ses
+    métadonnées, et un profil colorimétrique découpé en blocs APP2 de 64 Ko
+    repousse couramment le marqueur SOF au-delà de 500 Ko. Les lecteurs qui
+    n'ont besoin que d'un en-tête bornent eux-mêmes leur lecture.
     """
-    donnees = donnees[:65536]
     for lecteur in _LECTEURS:
         try:
             taille = lecteur(donnees)

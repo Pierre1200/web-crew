@@ -5,6 +5,10 @@ anthropic==0.111.0
 typer==0.23.2
 python-dotenv==1.2.1
 pypdf==6.1.1
+# Requis par pypdf pour sortir les images d'un PDF. Sans lui, pypdf lève
+# « pillow is required to do image extraction » ; extraire_images() avale
+# l'exception et le document ne rend aucune photo, sans erreur visible.
+pillow==12.3.0
 python-docx==1.2.0
 
 # Critique visuelle (optionnel) — pilote un navigateur pour photographier le

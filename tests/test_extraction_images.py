@@ -8,7 +8,7 @@ import struct
 import zipfile
 
 from agents.ingestion import DOSSIER_IMAGES_EXTRAITES, IngestionAgent
-from utils.extractors import extraire_images
+from utils.extractors import extract_text, extraire_images
 from utils.images import dimensions_depuis_octets
 
 
@@ -31,6 +31,32 @@ def _docx(proj, nom, medias: dict):
     return chemin
 
 
+_ODT_CONTENU = """<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content
+    xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+    xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+  <office:body><office:text>
+    <text:h text:outline-level="1">Ma démarche</text:h>
+    <text:p>Un premier paragraphe.</text:p>
+    <text:p>Un mot <text:span>en gras</text:span> au milieu.</text:p>
+    <text:p/>
+    <text:p>   </text:p>
+  </office:text></office:body>
+</office:document-content>"""
+
+
+def _odt(proj, nom, medias: dict | None = None, contenu: str = _ODT_CONTENU):
+    """Fabrique un .odt : archive ZIP, texte dans content.xml, images dans Pictures/."""
+    chemin = proj.data_dir / nom
+    chemin.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(chemin, "w") as archive:
+        archive.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+        archive.writestr("content.xml", contenu)
+        for nom_media, donnees in (medias or {}).items():
+            archive.writestr(f"Pictures/{nom_media}", donnees)
+    return chemin
+
+
 GROSSE = _png(800, 600, remplissage=20_000)      # une vraie photo
 PETITE = _png(60, 60, remplissage=20_000)        # trop petite : artefact de mise en page
 LEGERE = _png(800, 600, remplissage=100)         # trop légère : filet ou puce
@@ -46,6 +72,32 @@ def test_images_extraites_d_un_docx(proj):
     images = extraire_images(chemin)
     assert len(images) == 2
     assert all(donnees.startswith(b"\x89PNG") for _, donnees in images)
+
+
+def test_texte_extrait_d_un_odt(proj):
+    """LibreOffice est courant chez les clients : .odt doit être lu comme .docx."""
+    texte = extract_text(_odt(proj, "demarche.odt"))
+    lignes = texte.splitlines()
+    assert lignes == [
+        "Ma démarche",
+        "Un premier paragraphe.",
+        "Un mot en gras au milieu.",
+    ]
+
+
+def test_odt_recolle_le_texte_coupe_par_la_mise_en_forme(proj):
+    """Un mot en gras découpe le paragraphe en <text:span> imbriqués.
+
+    Lire le seul contenu direct de la balise rendrait « Un mot » et perdrait
+    la suite : c'est tout le sous-arbre qu'il faut ramasser.
+    """
+    assert "Un mot en gras au milieu." in extract_text(_odt(proj, "gras.odt"))
+
+
+def test_images_extraites_d_un_odt(proj):
+    chemin = _odt(proj, "photos.odt", {"image1.png": GROSSE, "image2.png": PETITE})
+    images = extraire_images(chemin)
+    assert [nom for nom, _ in images] == ["image1.png"]
 
 
 def test_artefacts_de_mise_en_page_ecartes(proj):

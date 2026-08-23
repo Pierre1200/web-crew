@@ -56,7 +56,7 @@ un message indiquant quoi lancer.
 Vérification :
 
 ```bash
-python3 -m pytest tests/ -q       # 196 tests, aucun appel API, aucune clé requise
+python3 -m pytest tests/ -q       # 204 tests, aucun appel API, aucune clé requise
 ```
 
 ---
@@ -454,4 +454,4 @@ sauter cette étape ? Si non, elle n'a rien à faire dans le registre.
 - **Extraction** : pypdf, python-docx
 - **Sortie** : HTML5, CSS3, JavaScript vanilla, zéro dépendance front
 
-196 tests, exécutables sans clé API.
+204 tests, exécutables sans clé API.

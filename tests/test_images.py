@@ -39,6 +39,25 @@ def _jpeg(largeur, hauteur):
     return b"\xff\xd8" + app0 + sof0 + b"\xff\xd9"
 
 
+def _jpeg_avec_profil_icc(largeur, hauteur, blocs=2):
+    """Un JPEG dont le SOF est repoussé loin par un profil colorimétrique.
+
+    Les appareils photo insèrent leur profil ICC dans des segments APP2, que
+    la norme oblige à découper en blocs d'au plus 65 533 octets. Deux blocs
+    suffisent à pousser le SOF au-delà de 64 Ko, et les vrais fichiers en ont
+    couramment huit. Cas rencontré sur de vraies photos de client, où le SOF
+    se trouvait à l'octet 576 392.
+    """
+    # 65506 vaut 0xFFE2 : les deux octets de longueur sont identiques au
+    # marqueur APP2 qui les précède. Coïncidence sans conséquence, la longueur
+    # étant lue à un décalage fixe, mais elle surprend à la lecture du dump.
+    charge = b"ICC_PROFILE\x00" + b"\x00" * (65504 - 12)
+    app2 = (b"\xff\xe2" + struct.pack(">H", 65506) + charge) * blocs
+    sof0 = (b"\xff\xc0" + struct.pack(">H", 17) + b"\x08"
+            + struct.pack(">HH", hauteur, largeur) + b"\x03" + b"\x00" * 9)
+    return b"\xff\xd8" + app2 + sof0 + b"\xff\xd9"
+
+
 def _webp_lossy(largeur, hauteur):
     # Structure VP8 : 3 octets d'étiquette de trame, puis le code de
     # synchronisation, puis les dimensions sur 14 bits chacune.
@@ -78,6 +97,18 @@ def test_dimensions_gif(proj):
 
 def test_dimensions_jpeg_apres_segment_a_sauter(proj):
     assert dimensions(_ecrire(proj, "a.jpg", _jpeg(1920, 1080))) == (1920, 1080)
+
+
+def test_dimensions_jpeg_sof_au_dela_de_64ko(proj):
+    """Le tampon ne doit jamais être tronqué avant le parcours des segments.
+
+    Une troncature à 64 Ko rendait le parseur aveugle sur toute photo portant
+    un profil ICC : dimensions None, donc pas de width/height dans le HTML,
+    donc une page qui saute au chargement.
+    """
+    donnees = _jpeg_avec_profil_icc(4160, 3120)
+    assert donnees.index(b"\xff\xc0") > 65536
+    assert dimensions(_ecrire(proj, "icc.jpg", donnees)) == (4160, 3120)
 
 
 def test_dimensions_webp_avec_perte(proj):
