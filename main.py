@@ -14,7 +14,7 @@ from utils.tarifs import cout_euros, formater, formater_nombre
 from agents.base_agent import BaseAgent
 from agents.orchestrator import OrchestratorAgent
 from agents.ingestion import IngestionAgent
-from agents.direction import DirectionAgent
+from agents.direction import CLES_ATTENDUES as CLES_DIRECTION, DirectionAgent
 from agents.copywriter import CopywriterAgent
 from agents.designer import DesignerAgent
 from agents.seo import SeoAgent
@@ -163,6 +163,34 @@ def _valider_en_fin_de_run(proj: Project):
     return resultat
 
 
+def _direction_reutilisable(proj: Project) -> bool:
+    """La direction artistique tient-elle encore, ou faut-il la repayer ?
+
+    Réutilisable à deux conditions : le fichier est complet, et il est plus
+    récent que le brief ET la configuration. La seconde condition est ce qui
+    évite le piège de `design-only` sans --replan : une direction plus vieille
+    que le cahier des charges ferait dessiner l'ancien site, et ce serait un
+    run payé pour rien.
+
+    Même esprit que le cache d'ingestion, avec des dates de modification plutôt
+    qu'une empreinte : ici les entrées sont deux fichiers, pas un dossier.
+    """
+    chemin = proj.temp_dir / "direction.json"
+    try:
+        direction = json.loads(chemin.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+
+    if not isinstance(direction, dict) or CLES_DIRECTION - set(direction):
+        return False
+
+    ecrit_le = chemin.stat().st_mtime
+    return all(
+        not source.exists() or source.stat().st_mtime <= ecrit_le
+        for source in (proj.brief_path, proj.config_path)
+    )
+
+
 def _cadrer(proj: Project) -> dict:
     """Orchestrateur puis direction artistique — le cadrage, avant l'exécution.
 
@@ -177,8 +205,15 @@ def _cadrer(proj: Project) -> dict:
         f"{[t['agent'] for t in plan['taches']]}\n"
     )
 
-    DirectionAgent(proj).run({})
-    typer.echo("")
+    if _direction_reutilisable(proj):
+        typer.echo(
+            "🎨 Direction artistique : décisions existantes plus récentes que le "
+            "brief — réutilisées (0 token)"
+        )
+        typer.echo("   (pour en changer : direction -p <projet> [--archetype …])\n")
+    else:
+        DirectionAgent(proj).run({})
+        typer.echo("")
     return plan
 
 

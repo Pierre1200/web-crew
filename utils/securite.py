@@ -41,6 +41,11 @@ _MOTIFS_SECRETS = (
     ("jeton JWT", r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"),
     ("clé AWS", r"\bAKIA[0-9A-Z]{16}\b"),
     ("variable secrète", r"(?i)\b(api[_-]?key|secret|password|passwd|token)\s*[:=]\s*['\"][^'\"]{8,}['\"]"),
+    # Pas un secret au sens strict : une association publie souvent son IBAN
+    # pour recevoir des dons. Mais il arrive dans les documents du client sans
+    # que personne ne l'ait décidé, et il ne doit jamais atterrir sur le site
+    # par accident. Signalé pour arbitrage humain, jamais corrigé.
+    ("coordonnées bancaires", r"\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){3,7}\s?[A-Z0-9]{0,4}\b"),
 )
 
 _EXTENSIONS_POLICES = (".woff2", ".woff", ".ttf", ".otf", ".eot")

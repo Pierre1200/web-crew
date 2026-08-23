@@ -166,6 +166,33 @@ def test_cle_api_detectee_sans_etre_recopiee(proj):
     assert all(len(t["extrait"]) <= 13 for t in trouvailles)
 
 
+def test_iban_signale_dans_le_livrable(proj):
+    """Les documents du client charrient parfois un IBAN de dons.
+
+    Ce n'est pas un secret volé : une association le publie volontiers. Mais
+    il traverse l'ingestion sans que personne ne l'ait décidé, et sa présence
+    dans le site livré doit être un choix, pas un accident.
+    """
+    _site(proj)
+    (proj.output_dir / "soutenir.html").write_text(
+        "<p>Par virement : FR76 1120 6000 1700 6062 9958 308</p>", encoding="utf-8"
+    )
+    trouvailles = chercher_secrets(proj.output_dir)
+    assert [t["type"] for t in trouvailles] == ["coordonnées bancaires"]
+    assert "9958" not in trouvailles[0]["extrait"]
+
+
+def test_contenu_ordinaire_nest_pas_pris_pour_un_iban(proj):
+    """Le motif est large : il ne doit pas crier sur du HTML et du CSS normaux."""
+    _site(proj)
+    (proj.output_dir / "extra.css").write_text(
+        ".col-12{color:#FF00AA}.g{transform:translate3d(0,0,0)}"
+        "@media (min-width:1440px){.h{--x:oklch(0.98 0.01 95)}}",
+        encoding="utf-8",
+    )
+    assert chercher_secrets(proj.output_dir) == []
+
+
 def test_site_propre_sans_secret(proj):
     _site(proj)
     assert chercher_secrets(proj.output_dir) == []

@@ -5,10 +5,12 @@ renvoie et la façon dont la direction se propage au designer et à la critique
 visuelle.
 """
 import json
+import os
 
 import pytest
 
 from agents.direction import ARCHETYPES, CLES_ATTENDUES, DirectionAgent
+from main import _direction_reutilisable
 from agents.designer import DesignerAgent, _PRINCIPES_GENERIQUES
 from agents.visuel import VisuelAgent
 
@@ -140,3 +142,66 @@ def test_la_critique_visuelle_fonctionne_sans_direction(proj):
     _config(proj)
     contexte = VisuelAgent(proj)._prompt_contexte({"style_guide": {}})
     assert "DIRECTION ARTISTIQUE QUI AVAIT ÉTÉ ARRÊTÉE" not in contexte
+
+
+# ── Réutilisation du cadrage (zéro token) ──────────────────────────────
+#
+# Une direction artistique coûte ~0,30 € : la rejouer sans raison à chaque
+# generate est de l'argent jeté. Mais la réutiliser après une retouche du
+# brief ferait dessiner l'ancien site. La règle est celle de make : la cible
+# est refaite si elle est plus vieille qu'une de ses sources.
+
+def _ecrire_direction(proj, contenu=None, apres=None):
+    """Écrit temp/direction.json, éventuellement daté après un autre fichier."""
+    chemin = proj.temp_dir / "direction.json"
+    chemin.parent.mkdir(parents=True, exist_ok=True)
+    chemin.write_text(
+        json.dumps(DIRECTION_VALIDE if contenu is None else contenu, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    if apres is not None:
+        repere = apres.stat().st_mtime
+        os.utime(chemin, (repere + 10, repere + 10))
+    return chemin
+
+
+def _ecrire_cadrage(proj):
+    proj.brief_path.write_text("# Brief", encoding="utf-8")
+    proj.config_path.write_text('{"site": {}}', encoding="utf-8")
+
+
+def test_direction_absente_est_a_calculer(proj):
+    _ecrire_cadrage(proj)
+    assert _direction_reutilisable(proj) is False
+
+
+def test_direction_complete_et_recente_est_reutilisee(proj):
+    _ecrire_cadrage(proj)
+    _ecrire_direction(proj, apres=proj.config_path)
+    assert _direction_reutilisable(proj) is True
+
+
+def test_direction_plus_vieille_que_le_brief_est_rejouee(proj):
+    """Le piège de design-only sans --replan : dessiner l'ancien cahier des charges."""
+    _ecrire_cadrage(proj)
+    chemin = _ecrire_direction(proj, apres=proj.config_path)
+    plus_tard = chemin.stat().st_mtime + 10
+    os.utime(proj.brief_path, (plus_tard, plus_tard))
+    assert _direction_reutilisable(proj) is False
+
+
+def test_direction_incomplete_est_rejouee(proj):
+    """Une clé manquante rend le fichier inutilisable par le designer."""
+    _ecrire_cadrage(proj)
+    tronquee = {k: v for k, v in DIRECTION_VALIDE.items() if k != "palette"}
+    _ecrire_direction(proj, contenu=tronquee, apres=proj.config_path)
+    assert _direction_reutilisable(proj) is False
+
+
+def test_direction_illisible_est_rejouee(proj):
+    _ecrire_cadrage(proj)
+    chemin = proj.temp_dir / "direction.json"
+    chemin.write_text("{ pas du json", encoding="utf-8")
+    repere = proj.config_path.stat().st_mtime
+    os.utime(chemin, (repere + 10, repere + 10))
+    assert _direction_reutilisable(proj) is False
