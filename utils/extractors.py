@@ -17,6 +17,17 @@ from pathlib import Path
 _TAILLE_MINI_OCTETS = 5 * 1024
 _COTE_MINI_PIXELS = 120
 
+# Les PDF sont autrement plus bavards que les documents Word. Un livret mis en
+# page peut rendre une centaine de morceaux : bandeaux découpés, vignettes de
+# catalogue, fragments de fond. Le premier run réel en a sorti 103, dont la
+# quasi-totalité inutilisables, qui sont ensuite allées polluer le manifeste
+# soumis au designer. Seuils volontairement plus sévères, donc.
+_PDF_COTE_MINI_PIXELS = 400
+_PDF_MAX_PAR_DOCUMENT = 20
+
+# Un rapport de forme extrême trahit une bande de mise en page, pas une photo.
+_RATIO_MAXI = 5.0
+
 # Word range parfois une copie « HD Photo » (.wdp) à côté du PNG : aucun
 # navigateur ne la lit, et c'est un doublon de l'image voisine.
 _FORMATS_IMAGES_UTILES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}
@@ -158,14 +169,36 @@ def extraire_images(path: Path) -> list[tuple[str, bytes]]:
     from utils.images import dimensions_depuis_octets
 
     utiles = []
+    est_pdf = path.suffix.lower() == ".pdf"
+    cote_mini = _PDF_COTE_MINI_PIXELS if est_pdf else _COTE_MINI_PIXELS
+
     for nom, donnees in images:
         if len(donnees) < _TAILLE_MINI_OCTETS:
             continue
         taille = dimensions_depuis_octets(donnees)
-        if taille and max(taille) < _COTE_MINI_PIXELS:
-            continue
-        utiles.append((nom, donnees))
-    return utiles
+        if taille:
+            if max(taille) < cote_mini:
+                continue
+            # Bande de mise en page : très longue et très fine, ou l'inverse.
+            grand, petit = max(taille), min(taille)
+            if petit and grand / petit > _RATIO_MAXI:
+                continue
+        utiles.append((nom, donnees, taille))
+
+    # Un PDF qui rend plus d'une vingtaine d'images est un document mis en
+    # page, pas un album photo : on ne garde que les plus grandes, qui sont
+    # les seules susceptibles d'être de vraies illustrations.
+    if est_pdf and len(utiles) > _PDF_MAX_PAR_DOCUMENT:
+        utiles.sort(
+            key=lambda e: (e[2][0] * e[2][1]) if e[2] else len(e[1]), reverse=True
+        )
+        utiles = utiles[:_PDF_MAX_PAR_DOCUMENT]
+        print(
+            f"   ℹ️  {path.name} : {_PDF_MAX_PAR_DOCUMENT} images retenues sur "
+            f"{len(images)}, les plus grandes (document mis en page)"
+        )
+
+    return [(nom, donnees) for nom, donnees, _ in utiles]
 
 
 def extract_text(path: Path) -> str:

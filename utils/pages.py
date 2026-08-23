@@ -227,6 +227,26 @@ def marqueurs_presents(gabarit: str) -> set[str]:
     return set(re.findall(r"\{\{\s*([a-z_]+)\s*\}\}", gabarit))
 
 
+def marqueur_html_dans_attribut(gabarit: str) -> str | None:
+    """Détecte un marqueur HTML placé dans un attribut, ce qui casse la page.
+
+    `{{couverture}}`, `{{corps}}` et `{{items}}` sont remplacés par du HTML
+    déjà construit. Écrire `<img src="{{couverture}}">` imbrique donc une
+    balise <figure> entière dans un attribut src, et aucune image ne s'affiche.
+
+    C'est arrivé sur les quatre gabarits du premier run réel : treize pages de
+    collection livrées sans la moindre image de couverture. Le contrôle est
+    gratuit et se fait avant d'écrire quoi que ce soit.
+
+    Retourne le nom du marqueur fautif, ou None si le gabarit est sain.
+    """
+    for marqueur in sorted(MARQUEURS_HTML):
+        motif = rf'[a-zA-Z-]+\s*=\s*"[^"]*\{{\{{\s*{marqueur}\s*\}}\}}'
+        if re.search(motif, gabarit):
+            return marqueur
+    return None
+
+
 def rendre_corps(blocs: list[dict], gabarits: dict) -> str:
     """Assemble le corps d'un contenu à partir des gabarits de blocs."""
     morceaux = []

@@ -247,3 +247,34 @@ def test_flux_sans_domaine_reste_relatif(proj):
     _ecrire(proj, "a.txt", "Titre: A\n\nTexte.")
     flux = rendre_flux(COLLECTION, lire_collection(proj, COLLECTION), "")
     assert "<link>blog/a.html</link>" in flux
+
+
+# ── Marqueurs HTML dans un attribut ────────────────────────────────────
+#
+# Bug du premier run réel : le designer a écrit src="{{couverture}}", croyant
+# à une URL. Le marqueur est remplacé par un <figure> entier, donc du balisage
+# s'est retrouvé imbriqué dans un attribut et treize pages sont parties sans
+# la moindre image.
+
+def test_couverture_dans_un_src_est_refusee():
+    from utils.pages import marqueur_html_dans_attribut
+    gabarit = '<img class="o__img" src="{{couverture}}" alt="{{titre}}">'
+    assert marqueur_html_dans_attribut(gabarit) == "couverture"
+
+
+def test_couverture_bien_placee_est_acceptee():
+    from utils.pages import marqueur_html_dans_attribut
+    assert marqueur_html_dans_attribut('<div class="media">{{couverture}}</div>') is None
+
+
+def test_corps_et_items_aussi_surveilles():
+    from utils.pages import marqueur_html_dans_attribut
+    assert marqueur_html_dans_attribut('<div data-x="{{corps}}">') == "corps"
+    assert marqueur_html_dans_attribut('<ul data-y="{{items}}">') == "items"
+
+
+def test_marqueurs_de_texte_autorises_dans_les_attributs():
+    """{{src}}, {{titre}} et {{url}} sont du texte : leur place EST l'attribut."""
+    from utils.pages import marqueur_html_dans_attribut
+    assert marqueur_html_dans_attribut('<img src="{{src}}" alt="{{titre}}">') is None
+    assert marqueur_html_dans_attribut('<a href="{{url}}">{{titre}}</a>') is None

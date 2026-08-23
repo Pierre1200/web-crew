@@ -6,6 +6,8 @@ refactorisation ne le débranche pas à nouveau en silence.
 """
 import json
 
+import pytest
+
 from agents.designer import DesignerAgent
 
 PLAN = {
@@ -103,3 +105,37 @@ def test_pas_d_accolades_doublees_dans_le_prompt(proj, monkeypatch):
 
     assert "{{" not in capture["user"]
     assert "{mot-clé}" in capture["user"]
+
+
+def test_gabarit_avec_couverture_en_attribut_est_rejete(proj):
+    """Mieux vaut échouer à la génération que livrer 13 pages sans images."""
+    _config(proj, {"sections": ["Hero"]})
+    reponse = (
+        '===PAGE_LISTE===\n<html>{{items}}</html>\n'
+        '===ITEM_LISTE===\n<li><a href="{{url}}">{{titre}}</a></li>\n'
+        '===PAGE_CONTENU===\n<html><h1>{{titre}}</h1>'
+        '<img src="{{couverture}}" alt="x">{{corps}}</html>\n'
+        '===BLOC_PARAGRAPHE===\n<p>{{texte}}</p>\n'
+        '===BLOC_SOUS_TITRE===\n<h2>{{texte}}</h2>\n'
+        '===BLOC_CITATION===\n<blockquote>{{texte}}</blockquote>\n'
+        '===BLOC_IMAGE===\n<img src="{{src}}" alt="{{alt}}">\n'
+    )
+    with pytest.raises(ValueError, match="attribut"):
+        DesignerAgent(proj)._parse_gabarits(reponse)
+
+
+def test_gabarits_sains_acceptes(proj):
+    _config(proj, {"sections": ["Hero"]})
+    reponse = (
+        '===PAGE_LISTE===\n<html>{{items}}</html>\n'
+        '===ITEM_LISTE===\n<li><a href="{{url}}">{{titre}}</a></li>\n'
+        '===PAGE_CONTENU===\n<html><h1>{{titre}}</h1>'
+        '<div class="media">{{couverture}}</div>{{corps}}</html>\n'
+        '===BLOC_PARAGRAPHE===\n<p>{{texte}}</p>\n'
+        '===BLOC_SOUS_TITRE===\n<h2>{{texte}}</h2>\n'
+        '===BLOC_CITATION===\n<blockquote>{{texte}}</blockquote>\n'
+        '===BLOC_IMAGE===\n<img src="{{src}}" alt="{{alt}}">\n'
+    )
+    gabarits = DesignerAgent(proj)._parse_gabarits(reponse)
+    assert set(gabarits) == {"liste", "item", "page", "paragraphe",
+                             "sous_titre", "citation", "image"}

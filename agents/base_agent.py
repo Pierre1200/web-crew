@@ -302,36 +302,57 @@ class BaseAgent:
         self,
         system_prompt: str,
         blocs: list,
-        max_tokens: int = 16000,
+        max_tokens: int = 48000,
     ) -> str:
-        """Appelle Claude avec un message MIXTE (images + texte).
+        """Appelle Claude EN STREAMING avec un message MIXTE (images + texte).
 
         `blocs` est une liste de blocs de contenu, dans l'ordre où le modèle
-        doit les lire — typiquement : une image, sa légende, l'image suivante…
+        doit les lire : une image, sa légende, l'image suivante, etc.
         Utilisé par la critique visuelle, qui doit REGARDER le site rendu et
         pas seulement lire son code source.
+
+        Streaming et budget large, tous deux appris à la dure lors du premier
+        run réel : l'agent tourne en effort `xhigh` avec une dizaine d'images
+        en entrée. Il réfléchit donc beaucoup, et **les tokens de raisonnement
+        se déduisent de max_tokens**. Avec 16 000, il ne restait plus assez de
+        budget pour finir un JSON contenant des blocs CSS entiers : la réponse
+        a été coupée en plein milieu d'une chaîne, et la passe entière perdue.
 
         Utiliser build_bloc_image() pour construire les blocs d'image.
         """
         nb_images = sum(1 for b in blocs if b.get("type") == "image")
         self.logger.info(f"Appel API Claude (vision) — {nb_images} image(s)")
 
-        message = self.client.messages.create(
+        with self.client.messages.stream(
             model=self.MODEL,
             max_tokens=max_tokens,
             system=system_prompt,
             messages=[{"role": "user", "content": blocs}],
             **self._kwargs_thinking(),
             **self._kwargs_effort(),
-        )
+        ) as flux:
+            message = flux.get_final_message()
 
         response = self._extraire_texte(message)
         usage = message.usage
         self._enregistrer_usage(usage)
         self.logger.info(
             f"Réponse reçue — {len(response)} caractères | "
-            f"tokens in: {usage.input_tokens}, out: {usage.output_tokens}"
+            f"tokens in: {usage.input_tokens}, out: {usage.output_tokens} | "
+            f"stop: {message.stop_reason}"
         )
+
+        # Une troncature silencieuse coûte la passe entière : on le dit tout de
+        # suite, pendant que la réponse brute est encore récupérable.
+        if message.stop_reason == "max_tokens":
+            self.logger.error(
+                f"Réponse vision tronquée à max_tokens={max_tokens} — "
+                "relever le budget de cet appel"
+            )
+            typer.echo(
+                f"   ⚠️  Réponse coupée par la limite de {max_tokens} tokens. "
+                "La réponse brute est sauvegardée si le parsing échoue."
+            )
         return response
 
     @staticmethod

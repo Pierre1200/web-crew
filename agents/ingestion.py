@@ -5,6 +5,7 @@ catalogue les images, puis trie/structure le tout avec l'IA.
 """
 from __future__ import annotations
 import hashlib
+import shutil
 import typer
 from pathlib import Path
 from agents.base_agent import BaseAgent
@@ -43,7 +44,7 @@ class IngestionAgent(BaseAgent):
         )
 
     # ── ÉTAPE 0 : LIBÉRER LES IMAGES PIÉGÉES (zéro token) ──────────
-    def _liberer_images_embarquees(self) -> int:
+    def _liberer_images_embarquees(self, rebatir: bool = False) -> int:
         """Sort les photos collées dans les .docx et les .pdf.
 
         Les clients envoient rarement leurs photos en pièces jointes : ils les
@@ -63,6 +64,17 @@ class IngestionAgent(BaseAgent):
             return 0
 
         cible = data_dir / DOSSIER_IMAGES_EXTRAITES
+
+        # L'extraction est idempotente : un fichier déjà sorti n'est pas
+        # réécrit. C'est ce qu'on veut au quotidien, mais ça fige aussi le
+        # résultat d'un ancien filtrage. Quand les seuils changent, il faut
+        # pouvoir tout refaire — d'où `rebatir`, branché sur `ingest --force`.
+        # Le dossier est entièrement généré : le vider ne perd rien.
+        if rebatir and cible.is_dir():
+            anciennes = sum(1 for f in cible.iterdir() if f.is_file())
+            shutil.rmtree(cible)
+            self.logger.info(f"Images extraites remises à zéro ({anciennes} fichiers)")
+            typer.echo(f"   ♻️  {anciennes} image(s) extraite(s) précédemment, remises à zéro")
 
         # Déduplication par CONTENU. Un logo revient dans chaque document, et
         # deux versions d'un même dossier (« INFOS » et « INFOS-1 ») donnent
@@ -279,7 +291,7 @@ Produis un JSON avec cette structure :
         # Étape 0 : libérer les photos piégées dans les documents. AVANT la
         # collecte et l'empreinte, pour que les images extraites soient
         # cataloguées dès ce run et que le cache reste cohérent.
-        self._liberer_images_embarquees()
+        self._liberer_images_embarquees(rebatir=bool(context.get("force")))
 
         # Étape 1 : collecte
         fichiers = self._collecter_fichiers()

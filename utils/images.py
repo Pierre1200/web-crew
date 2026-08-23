@@ -24,6 +24,7 @@ simplement les attributs).
 from __future__ import annotations
 import re
 import shutil
+import warnings
 import struct
 from math import gcd
 from pathlib import Path
@@ -34,6 +35,20 @@ EXTENSIONS_IMAGES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".avif"}
 
 # Au-delà, l'image ralentit le chargement du site et mérite d'être allégée.
 POIDS_LOURD_KO = 500
+
+# Plafond du PLUS GRAND CÔTÉ. 1600 px couvre un affichage pleine largeur sur
+# écran à densité double : au-delà, on transporte des pixels que personne ne
+# voit. Plafonner la largeur seule laissait passer les portraits très hauts,
+# qui pesaient encore un mégaoctet.
+COTE_MAX_PX = 1600
+
+# Qualité JPEG. 82 est le point où l'œil ne distingue plus la compression alors
+# que le poids a déjà fondu.
+QUALITE_JPEG = 82
+
+# Formats qu'on ne touche pas : le vectoriel n'a pas de résolution, et l'animé
+# perdrait ses images intermédiaires.
+FORMATS_NON_REDIMENSIONNES = {".svg", ".gif"}
 
 
 # ── LECTURE DES DIMENSIONS (décodage d'en-têtes binaires) ──────────────
@@ -205,6 +220,68 @@ def _orientation(largeur: int, hauteur: int) -> str:
     return "carré"
 
 
+def optimiser_image(source: Path, cible: Path, cote_max: int = COTE_MAX_PX) -> bool:
+    """Copie une image en la redimensionnant si elle est trop grande.
+
+    Le premier run réel a livré 43 Mo d'images, dont un fichier de 4,3 Mo. Pour
+    un public rural en 3G, une page pareille ne s'affiche pas. Le designer le
+    signalait déjà, mais rien dans la chaîne ne savait y remédier.
+
+    Deux gestes, tous deux invisibles pour le client :
+    - **Redresser selon l'orientation EXIF.** Une photo prise au téléphone porte
+      une étiquette « tourne-moi de 90° » que seuls certains logiciels lisent.
+      Sans ce redressement, elle s'affiche couchée sur le site.
+    - **Réduire à la largeur maximale servie**, et réencoder.
+
+    Retourne True si l'image a été transformée, False si elle a été copiée
+    telle quelle. Toute erreur retombe sur une copie simple : mieux vaut une
+    image lourde qu'une image absente.
+    """
+    if source.suffix.lower() in FORMATS_NON_REDIMENSIONNES:
+        shutil.copy2(source, cible)
+        return False
+
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        shutil.copy2(source, cible)
+        return False
+
+    try:
+        # Pillow signale sur la sortie d'erreur les EXIF un peu bancals des
+        # appareils photo. Ce n'est pas actionnable et ça noie les messages
+        # utiles du crew.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with Image.open(source) as image:
+                image = ImageOps.exif_transpose(image)
+                largeur, hauteur = image.size
+
+                if max(largeur, hauteur) <= cote_max:
+                    shutil.copy2(source, cible)
+                    return False
+
+                facteur = cote_max / max(largeur, hauteur)
+                image = image.resize(
+                    (max(1, round(largeur * facteur)), max(1, round(hauteur * facteur))),
+                    Image.LANCZOS,
+                )
+
+                if cible.suffix.lower() in {".jpg", ".jpeg"}:
+                    # Le JPEG ne connaît pas la transparence : un PNG converti
+                    # afficherait un fond noir sans cette mise à plat.
+                    if image.mode not in ("RGB", "L"):
+                        image = image.convert("RGB")
+                    image.save(cible, quality=QUALITE_JPEG, optimize=True,
+                               progressive=True)
+                else:
+                    image.save(cible, optimize=True)
+        return True
+    except Exception:
+        shutil.copy2(source, cible)
+        return False
+
+
 def _decrire(chemin: Path, chemin_web: str, source: str) -> dict:
     """Construit l'entrée de manifeste d'une image déjà en place."""
     entree = {
@@ -259,10 +336,12 @@ def preparer_assets(project, contexte_ingestion: dict | None = None) -> list[dic
                 parent = nom_web(source.parent.name or "img").rsplit(".", 1)[0]
                 cible_nom = f"{parent}-{cible_nom}"
             cible = dossier_assets / cible_nom
-            shutil.copy2(source, cible)
+            allegee = optimiser_image(source, cible)
             deja_vus.add(cible_nom)
             entree = _decrire(cible, f"assets/{cible_nom}", "data")
             entree["nom_origine"] = source.name
+            if allegee:
+                entree["poids_origine_ko"] = round(source.stat().st_size / 1024, 1)
             manifeste.append(entree)
 
     # 2. les images déjà présentes dans output/assets/ (déposées à la main)

@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 
 import typer
 from dotenv import load_dotenv
@@ -60,6 +61,24 @@ def _load_project(project_name: str) -> Project:
 
     proj.setup_dirs()
     return proj
+
+
+@contextmanager
+def _facture():
+    """Affiche la consommation QUOI QU'IL ARRIVE, y compris si le run plante.
+
+    Sans ce `finally`, une exception en cours de pipeline emporte la facture
+    avec elle : l'argent est dépensé, l'affichage n'a jamais lieu, et il faut
+    reconstituer le coût depuis les logs. C'est arrivé deux fois lors du
+    premier run réel.
+
+    Le `raise` n'est pas intercepté : l'erreur remonte normalement, on ne fait
+    que s'assurer que le compteur passe avant.
+    """
+    try:
+        yield
+    finally:
+        _afficher_conso()
 
 
 def _afficher_conso():
@@ -215,6 +234,34 @@ def _cadrer(proj: Project) -> dict:
         DirectionAgent(proj).run({})
         typer.echo("")
     return plan
+
+
+def _generer_mentions(proj: Project):
+    """Écrit la page de mentions légales. Zéro token.
+
+    Le premier run réel a produit seize liens vers une page que rien ne savait
+    générer. Le designer avait raison de l'attendre : en France, un site public
+    doit dire qui l'édite et qui l'héberge. Ce sont des faits administratifs,
+    pas de la rédaction : aucune raison de payer un modèle pour ça.
+    """
+    from utils.mentions import FICHIER, rendre_mentions
+
+    try:
+        html, manquants = rendre_mentions(proj)
+    except (OSError, ValueError) as e:
+        typer.echo(f"   ⚠️  Mentions légales non générées : {e}")
+        return
+
+    (proj.output_dir / FICHIER).write_text(html, encoding="utf-8")
+    typer.echo(f"   ⚖️  Mentions légales → {FICHIER}")
+
+    if manquants:
+        typer.echo(
+            f"      ⚠️  {len(manquants)} information(s) à compléter dans "
+            "config.json (site.mentions) :"
+        )
+        for manquant in manquants:
+            typer.echo(f"         • {manquant}")
 
 
 def _generer_collections(proj: Project, designer, forcer_gabarits: bool = False) -> int:
@@ -373,10 +420,10 @@ def generate(
 
     designer = instances.get("designer") or DesignerAgent(proj)
     _generer_collections(proj, designer)
+    _generer_mentions(proj)
 
     typer.echo(f"\n✅ Pipeline complet — ouvre {proj.output_dir}/index.html")
     _valider_en_fin_de_run(proj)
-    _afficher_conso()
 
 
 @app.command()
@@ -410,6 +457,7 @@ def generate_safe(
     # Le designer est nécessaire pour la méthode fix() — on le récupère depuis les instances
     designer = instances.get("designer") or DesignerAgent(proj)
     _generer_collections(proj, designer)
+    _generer_mentions(proj)
     validator = ValidatorAgent(proj)
     output_dir = proj.output_dir
 
@@ -479,7 +527,6 @@ def generate_safe(
         _critique_visuelle(proj, designer, tours=visuel_tours)
 
     typer.echo(f"\n🎯 Pipeline terminé — ouvre {proj.output_dir}/")
-    _afficher_conso()
 
 
 @app.command()
@@ -515,7 +562,6 @@ def design_only(
     result = DesignerAgent(proj).run({})
     typer.echo(f"✅ Fichiers : {result['fichiers']}")
     _valider_en_fin_de_run(proj)
-    _afficher_conso()
 
 
 @app.command()
@@ -608,7 +654,6 @@ def seo_only(
     seo = SeoAgent(proj)
     meta = seo.run({})
     typer.echo(f"\n✅ Title : {meta.get('title', 'N/A')}")
-    _afficher_conso()
 
 
 @app.command()
@@ -620,7 +665,6 @@ def critique(
     proj = _load_project(project_name)
     typer.echo(f"\n🧐 Critique de {proj.name}...\n")
     CritiqueAgent(proj).run({})
-    _afficher_conso()
 
 
 @app.command()
@@ -642,6 +686,7 @@ def pages(
 
     _sauvegarder(proj)
     total = _generer_collections(proj, DesignerAgent(proj), regenerer_gabarits)
+    _generer_mentions(proj)
 
     if total == 0:
         typer.echo(
@@ -653,7 +698,6 @@ def pages(
     else:
         typer.echo(f"\n✅ {total} page(s) de contenu générée(s)")
         _valider_en_fin_de_run(proj)
-    _afficher_conso()
 
 
 @app.command()
@@ -693,7 +737,6 @@ def direction(
 
     typer.echo("\n   Appliquer cette direction : webcrew design-only -p "
                f"{proj.name}")
-    _afficher_conso()
 
 
 @app.command()
@@ -721,7 +764,6 @@ def visuel(
     if corriger:
         typer.echo("\n   Comparer avec l'avant : webcrew diff · revenir : webcrew restore")
 
-    _afficher_conso()
 
 
 @app.command()
@@ -775,7 +817,6 @@ def securiser(
         typer.echo("\n   Comparer : webcrew diff · revenir en arrière : webcrew restore")
         typer.echo("   ⚠️  Vérifie la console du navigateur après mise en ligne : "
                    "une CSP trop stricte se voit là.")
-    _afficher_conso()
 
 
 @app.command()
@@ -793,7 +834,11 @@ def ingest(
     """Lance l'agent Ingestion sur les données du projet."""
     proj = _load_project(project_name)
     IngestionAgent(proj).run({"force": force})
-    _afficher_conso()
 
 if __name__ == "__main__":
-    app()
+    # La facture est affichée ici, et non dans chaque commande : un seul
+    # point de passage, et le `finally` la garantit même si le pipeline
+    # lève une exception. _afficher_conso() ne fait rien si aucun appel
+    # API n'a eu lieu, donc les commandes gratuites restent silencieuses.
+    with _facture():
+        app()

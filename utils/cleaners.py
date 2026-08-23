@@ -54,21 +54,92 @@ def strip_markdown_fences(text: str) -> str:
     return clean.strip()
 
 
-def parse_json_safe(text: str) -> dict:
+_FERMETURE = {"{": "}", "[": "]"}
+
+
+def diagnostiquer_json(texte: str) -> str:
+    """Explique POURQUOI un JSON est invalide, au lieu de le supposer tronqué.
+
+    L'ancien message disait « probablement tronqué » dans tous les cas. Lors du
+    premier run réel, il s'est trompé une fois sur deux et a fait perdre un
+    quart d'heure de diagnostic : la vraie cause était une accolade manquante
+    au milieu du document, le contenu étant complet.
+
+    On parcourt le texte en tenant une pile des conteneurs ouverts, en
+    respectant les chaînes et les échappements. À la fin, la pile dit tout :
+      - pile vide et texte fini dans une chaîne : coupure en plein milieu
+      - pile non vide : il manque des fermetures, et on sait lesquelles et où
+      - pile vide : le problème est ailleurs (virgule, guillemet, clé en double)
     """
-    Nettoie puis parse une réponse JSON de Claude.
-    Lève une erreur claire si le JSON est invalide (ex: tronqué).
+    pile = []                    # [(caractère ouvrant, numéro de ligne)]
+    ligne = 1
+    dans_chaine = False
+    echappe = False
+
+    for caractere in texte:
+        if caractere == "\n":
+            ligne += 1
+
+        if dans_chaine:
+            # Un antislash neutralise le caractère suivant, y compris un
+            # guillemet : sans ça, "il a dit \"oui\"" fermerait trop tôt.
+            if echappe:
+                echappe = False
+            elif caractere == "\\":
+                echappe = True
+            elif caractere == '"':
+                dans_chaine = False
+            continue
+
+        if caractere == '"':
+            dans_chaine = True
+        elif caractere in "{[":
+            pile.append((caractere, ligne))
+        elif caractere in "}]" and pile:
+            pile.pop()
+
+    if dans_chaine:
+        return (
+            f"la réponse s'arrête au milieu d'une chaîne de caractères "
+            f"(ligne {ligne}) : c'est une vraie troncature, le modèle a été "
+            f"coupé par sa limite de tokens. Relève max_tokens pour cet agent."
+        )
+
+    if pile:
+        ouvrant, ligne_ouverture = pile[-1]
+        manquants = "".join(_FERMETURE[c] for c, _ in reversed(pile))
+        nature = "objet" if ouvrant == "{" else "tableau"
+        return (
+            f"{len(pile)} conteneur(s) jamais refermé(s) : il manque « {manquants} ». "
+            f"Le plus profond est un {nature} ouvert ligne {ligne_ouverture}. "
+            f"Si le contenu semble complet, c'est une fermeture oubliée en "
+            f"cours de route, pas une troncature : ajoute « {manquants} » au "
+            f"bon endroit et le contenu est récupérable."
+        )
+
+    return (
+        "tous les conteneurs sont refermés : le contenu n'est pas tronqué. "
+        "Cherche plutôt une virgule en trop ou manquante, un guillemet non "
+        "échappé, ou une valeur mal formée."
+    )
+
+
+def parse_json_safe(text: str) -> dict:
+    """Nettoie puis parse une réponse JSON de Claude.
+
+    En cas d'échec, le message dit précisément ce qui cloche : c'est ce qui
+    permet de réparer une réponse à la main plutôt que de repayer l'appel.
     """
     clean = strip_markdown_fences(text)
 
     try:
         return json.loads(clean)
     except json.JSONDecodeError as e:
-        # Message d'erreur utile pour déboguer
+        ligne, colonne = e.lineno, e.colno
         raise ValueError(
-            f"JSON invalide (probablement tronqué). "
-            f"Erreur à la position {e.pos}. "
-            f"Début du contenu reçu : {clean[:200]}..."
+            f"JSON invalide : {diagnostiquer_json(clean)}\n"
+            f"   Le parseur a lâché ligne {ligne}, colonne {colonne} "
+            f"(caractère {e.pos} sur {len(clean)}) : {e.msg}."
         ) from e
 
 

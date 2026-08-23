@@ -5,7 +5,7 @@ from utils.project import Project
 from utils.cleaners import clean_code_output, extract_css_classes, strip_markdown_fences, compact_json
 from utils.embeds import construire_manifeste
 from utils.images import preparer_assets, images_lourdes
-from utils.pages import marqueurs_presents
+from utils.pages import marqueur_html_dans_attribut, marqueurs_presents
 
 _FORM_KEYWORDS = {"contact", "newsletter", "reserver", "formulaire", "rdv", "inscription"}
 
@@ -706,6 +706,16 @@ Cible UNIQUEMENT les ids et classes présents dans ce HTML :
                     + ", ".join(f"{{{{{m}}}}}" for m in sorted(absents))
                 )
 
+        for cle, gabarit in gabarits.items():
+            faute = marqueur_html_dans_attribut(gabarit)
+            if faute:
+                raise ValueError(
+                    f"Gabarit '{cle}' inutilisable — {{{{{faute}}}}} est placé "
+                    f"dans un attribut HTML. Ce marqueur est remplacé par un "
+                    f"bloc HTML complet, pas par une URL : le mettre dans un "
+                    f"src= ou un href= imbrique du balisage et n'affiche rien."
+                )
+
         return gabarits
 
     def generer_gabarits(self, collection: dict, contenus: list[dict]) -> dict:
@@ -780,6 +790,18 @@ Page HTML complète d'un contenu.
 Marqueurs : {{{{titre}}}} (obligatoire), {{{{corps}}}} (obligatoire — le texte rendu), \
 {{{{chapo}}}}, {{{{date_fr}}}}, {{{{temps_lecture}}}}, {{{{couverture}}}}, \
 {{{{url_liste}}}}, {{{{url_accueil}}}}, {{{{racine}}}}
+
+⚠️ TROIS MARQUEURS CONTIENNENT DU HTML DÉJÀ CONSTRUIT, PAS DU TEXTE :
+{{{{corps}}}}, {{{{items}}}} et {{{{couverture}}}}.
+{{{{couverture}}}} est remplacé par le BLOC_IMAGE complet que tu écris plus bas,
+balise <img> comprise. Ce n'est PAS une URL.
+  Correct   : <div class="carte__media">{{{{couverture}}}}</div>
+  INTERDIT  : <img src="{{{{couverture}}}}" alt="…">
+Le mettre dans un attribut produit du HTML imbriqué dans un src= et aucune
+image ne s'affiche. Même règle pour {{{{corps}}}} et {{{{items}}}}.
+
+{{{{temps_lecture}}}} est un NOMBRE de minutes, à accompagner de son unité
+(« 3 min de lecture »). Seul, il affiche un « 3 » orphelin.
 ===BLOC_PARAGRAPHE===
 Le balisage d'un paragraphe. Marqueur : {{{{texte}}}}
 ===BLOC_SOUS_TITRE===

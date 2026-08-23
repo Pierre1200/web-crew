@@ -10,19 +10,19 @@ optimisé et durci.
                                     │
   ══════════════════════════════════▼══════════════════════════════════════
   CADRAGE      INGESTION ──────────────▶  temp/context.json
-  ~0,18 €      ORCHESTRATEUR ──────────▶  temp/plan.json
+  ~0,65 €      ORCHESTRATEUR ──────────▶  temp/plan.json
                DIRECTION ARTISTIQUE ───▶  temp/direction.json
                                     │
   ══════════════════════════════════▼══════════════════════════════════════
   PRODUCTION   COPYWRITER ───────────▶  temp/textes.json
-  ~1,20 €      DESIGNER ─────────────▶  index.html · style.css · main.js
+  ~2,25 €      DESIGNER ─────────────▶  index.html · style.css · main.js
                PAGES ────────────────▶  collections (1 appel, quel que soit N)
                SEO ──────────────────▶  balises · sitemap.xml · robots.txt
                                     │
   ══════════════════════════════════▼══════════════════════════════════════
   CONTRÔLE     VALIDATEUR ──────────▶  structure, liens, médias   (0 token)
                CRITIQUE ────────────▶  fond des textes
-               CRITIQUE VISUELLE ───▶  rendu réel, en images      (~0,14 €)
+               CRITIQUE VISUELLE ───▶  rendu réel, en images      (~0,46 €)
                                     │
   ══════════════════════════════════▼══════════════════════════════════════
   LIVRAISON    SÉCURITÉ ────────────▶  durcissement · SECURITE.md  (0 token)
@@ -56,7 +56,7 @@ un message indiquant quoi lancer.
 Vérification :
 
 ```bash
-python3 -m pytest tests/ -q       # 204 tests, aucun appel API, aucune clé requise
+python3 -m pytest tests/ -q       # 239 tests, aucun appel API, aucune clé requise
 ```
 
 ---
@@ -65,15 +65,15 @@ python3 -m pytest tests/ -q       # 204 tests, aucun appel API, aucune clé requ
 
 | Commande | Effet | Coût |
 |---|---|---|
-| `generate -p X` | Pipeline complet | ~1,40 € |
-| `generate-safe -p X --visuel 2` | Pipeline, correction auto, critique visuelle | ~2,75 € |
-| `ingest -p X [--force]` | Digère `data/` seul | ~0,09 € |
-| `direction -p X [--archetype …]` | Rejoue la direction artistique | ~0,37 € |
-| `design-only -p X [--replan]` | Redessine le site | ~1,10 € |
+| `generate -p X` | Pipeline complet | ~3,00 € |
+| `generate-safe -p X --visuel 2` | Pipeline, correction auto, critique visuelle | ~3,90 € |
+| `ingest -p X [--force]` | Digère `data/` seul | ~0,30 € |
+| `direction -p X [--archetype …]` | Rejoue la direction artistique | ~0,28 € |
+| `design-only -p X [--replan]` | Redessine le site | ~1,60 € |
 | `pages -p X [--gabarits]` | (Re)génère les collections | 0 sans `--gabarits` |
 | `seo-only -p X` | Métadonnées et sitemap | ~0,01 € |
 | `critique -p X` | Contrôle le fond des textes | ~0,08 € |
-| `visuel -p X [--corriger] [--tours N]` | Juge le rendu, applique les correctifs | ~0,14 €/passe |
+| `visuel -p X [--corriger] [--tours N]` | Juge le rendu, applique les correctifs | ~0,46 €/passe |
 | `securiser -p X [--durcir] [--injection]` | Audit, durcissement, rapport | 0 (ou ~0,10 €) |
 | `validate -p X` | Contrôle structurel | 0 |
 | `diff -p X` | Ce que le dernier run a changé | 0 |
@@ -103,10 +103,16 @@ Anthropic facture en dollars : les euros affichés sont une estimation. Les prix
 par modèle et le taux de change vivent dans [utils/tarifs.py](utils/tarifs.py),
 seul endroit à mettre à jour.
 
-Les montants de ce README sont donnés pour un site vitrine d'une page. Ils
-varient surtout avec les tokens de raisonnement, qui représentent l'essentiel de
-la facture du designer. Les images ne coûtent rien : elles n'atteignent jamais
-le modèle, seul leur catalogue est transmis.
+Ces montants sont ceux **mesurés sur un vrai run** : un site à six sections
+avec deux collections, une cinquantaine de documents clients. Ils varient
+surtout avec le volume de contenu, pas avec le nombre de commandes.
+
+Le designer produit un site entier en un seul appel : c'est structurellement le
+poste le plus lourd, et sa sortie croît avec le nombre de sections et de
+composants. Compter 1,50 € à 1,80 € pour lui sur un site de cette taille.
+
+Les images, en revanche, ne coûtent rien : elles n'atteignent jamais le modèle,
+seul leur catalogue est transmis.
 
 ### Itérer sans se ruiner
 
@@ -114,11 +120,11 @@ Le designer représente environ 40 % de la facture. Pour retravailler un rendu,
 ne relancez pas `generate` :
 
 ```bash
-python3 main.py direction   -p mon-client --archetype galerie-grille   # 0,37 €
-python3 main.py design-only -p mon-client                              # 1,10 €
+python3 main.py direction   -p mon-client --archetype galerie-grille   # 0,28 €
+python3 main.py design-only -p mon-client                              # 1,60 €
 ```
 
-Si seul un détail visuel cloche, `visuel --corriger` coûte 0,14 € et applique
+Si seul un détail visuel cloche, `visuel --corriger` coûte 0,46 € et applique
 les correctifs CSS sans rien régénérer.
 
 > `design-only` sans `--replan` rejoue l'ancien plan. Après toute modification
@@ -172,6 +178,14 @@ présent dans le site mais absent de la configuration.
     "medias": {
       "titre_section": "Les vidéos",
       "items": [{ "titre": "…", "url": "https://youtu.be/XXXXXXXXXXX" }]
+    },
+    "mentions": {
+      "statut": "association loi 1901",
+      "adresse": "…",
+      "rna": "W000000000",
+      "siret": "000 000 000 00000",
+      "directeur_publication": "…",
+      "hebergeur": { "nom": "…", "adresse": "…", "site": "https://…" }
     }
   },
   "seo": {
@@ -192,6 +206,7 @@ présent dans le site mais absent de la configuration.
 | `site.url` | Domaine, pour les URL absolues du sitemap et des flux |
 | `site.collections` | Voir [Collections](#collections) |
 | `site.medias` | Voir [Médias](#médias) |
+| `site.mentions` | Informations légales de la page `mentions-legales.html`. Ce qui manque est listé sur la page elle-même plutôt que deviné |
 | `_note…` | Toute clé commençant par `_note`, sous `site` ou `site.style`, est une consigne transmise telle quelle au designer |
 
 Exemple de consignes :
@@ -270,6 +285,24 @@ Pour ajouter un fournisseur : une entrée dans `_FOURNISSEURS`
 
 ---
 
+## Mentions légales
+
+Une page `mentions-legales.html` est générée à chaque run, sans IA : ce sont des
+faits administratifs, pas de la rédaction. Elle reprend l'en-tête et le pied de
+l'accueil pour se fondre dans le site, et n'est pas indexée.
+
+Le contenu vient de `site.mentions`, avec repli sur `client`. **Ce qui manque
+n'est jamais deviné** : la page affiche la liste des informations à compléter,
+et la commande les répète en fin d'exécution. Sur un document à portée
+juridique, un trou doit se voir.
+
+Le squelette couvre les rubriques d'usage en France (éditeur, directeur de la
+publication, hébergeur, propriété intellectuelle, données personnelles,
+cookies). Ce n'est pas un avis juridique : le client doit relire avant la mise
+en ligne.
+
+---
+
 ## Images
 
 ### Photos piégées dans les documents
@@ -294,6 +327,12 @@ un logo présent dans chaque document ne serait sinon proposé cinq fois.
 Tout fichier image de `data/` est copié dans `output/assets/` sous un nom
 compatible URL, et ses dimensions réelles sont lues en décodant l'en-tête du
 fichier (PNG, JPEG, GIF, WebP, SVG), en Python pur, sans dépendance.
+
+**Les images sont allégées à la copie.** Le plus grand côté est ramené à
+1600 px et le fichier réencodé : un premier run a livré 43 Mo d'images, dont un
+fichier de 4,3 Mo, ce qui ne s'affiche pas sur un réseau lent. L'orientation
+EXIF est redressée au passage, sans quoi une photo prise au téléphone s'affiche
+couchée. Le vectoriel et l'animé ne sont pas touchés.
 
 Le designer reçoit un manifeste (chemin, dimensions, ratio, orientation, poids)
 et doit s'en servir en priorité. Les images de remplissage ne sont tolérées que
@@ -454,4 +493,4 @@ sauter cette étape ? Si non, elle n'a rien à faire dans le registre.
 - **Extraction** : pypdf, python-docx
 - **Sortie** : HTML5, CSS3, JavaScript vanilla, zéro dépendance front
 
-204 tests, exécutables sans clé API.
+239 tests, exécutables sans clé API.

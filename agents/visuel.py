@@ -19,6 +19,7 @@ import typer
 from agents.base_agent import BaseAgent
 from utils.capture import capturer_site, CaptureIndisponible
 from utils.cleaners import compact_json
+from utils.pages import collections_declarees
 
 # Gravités, de la plus grave à la plus légère
 GRAVITES = ("bloquant", "majeur", "mineur")
@@ -43,6 +44,41 @@ class VisuelAgent(BaseAgent):
     def _dossier_captures(self):
         return self.project.logs_dir / "captures"
 
+    def _pages_secondaires(self) -> list:
+        """Échantillon de pages de collection à photographier en plus de l'accueil.
+
+        Lors du premier run réel, seule `index.html` a été photographiée : les
+        treize pages de collection, soit la majorité du site, n'ont jamais été
+        vues. C'est pourtant là que se trouvait le bug qui les privait toutes
+        d'images de couverture.
+
+        On prend deux pages par collection, la liste et un contenu : assez pour
+        repérer un gabarit cassé, sans faire exploser le nombre d'images.
+        """
+        try:
+            collections = collections_declarees(self.load_config())
+        except (OSError, ValueError):
+            return []
+
+        echantillon = []
+        for collection in collections:
+            dossier = self.project.output_dir / collection["url"]
+            liste = dossier / "index.html"
+            if not liste.exists():
+                continue
+            echantillon.append(liste)
+            contenus = sorted(
+                p for p in dossier.glob("*.html") if p.name != "index.html"
+            )
+            if contenus:
+                echantillon.append(contenus[0])
+
+        if echantillon:
+            self.logger.info(
+                f"{len(echantillon)} page(s) de collection ajoutée(s) aux captures"
+            )
+        return echantillon
+
     def _construire_blocs(self, images: list[dict], contexte: str) -> list:
         """Assemble le message mixte : consignes, puis chaque image légendée.
 
@@ -55,9 +91,9 @@ class VisuelAgent(BaseAgent):
             blocs.append({
                 "type": "text",
                 "text": (
-                    f"\n--- Rendu {img['format']} ({img['largeur']}px de large), "
-                    f"écran {img['tranche']}/{img['total_tranches']} "
-                    f"en partant du haut ---"
+                    f"\n--- Page « {img.get('page', 'accueil')} », rendu "
+                    f"{img['format']} ({img['largeur']}px de large), écran "
+                    f"{img['tranche']}/{img['total_tranches']} en partant du haut ---"
                 ),
             })
             blocs.append(self.build_bloc_image(img["chemin"]))
@@ -161,7 +197,11 @@ Produis un JSON avec exactement cette structure :
 
         html_path = self.project.output_dir / "index.html"
         try:
-            images = capturer_site(html_path, self._dossier_captures())
+            images = capturer_site(
+                html_path,
+                self._dossier_captures(),
+                pages_secondaires=self._pages_secondaires(),
+            )
         except CaptureIndisponible as e:
             typer.echo(f"\n❌ {e}")
             raise
@@ -179,7 +219,10 @@ Produis un JSON avec exactement cette structure :
         blocs = self._construire_blocs(images, self._prompt_contexte(plan))
 
         typer.echo("   → Analyse du rendu par le modèle...")
-        reponse = self.call_claude_vision(self._prompt_systeme(), blocs, max_tokens=16000)
+        # 48 000 et non 16 000 : en effort xhigh avec une dizaine d'images, le
+        # raisonnement consomme l'essentiel du budget avant la première ligne
+        # de JSON. Le premier run réel s'est fait couper au milieu d'une chaîne.
+        reponse = self.call_claude_vision(self._prompt_systeme(), blocs, max_tokens=48000)
         critique = self.parse_json_response(reponse)
 
         self.write_json("temp/critique_visuelle.json", critique)
