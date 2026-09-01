@@ -835,6 +835,156 @@ def ingest(
     proj = _load_project(project_name)
     IngestionAgent(proj).run({"force": force})
 
+@app.command()
+def graphe(
+    project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet"),
+    plafond: float = typer.Option(6.0, "--plafond", help="Plafond de dépense du run, en euros"),
+    corrections: int = typer.Option(2, "--corrections", help="Tentatives de réparation maximum"),
+    visuel_tours: int = typer.Option(0, "--visuel", help="Passes de critique visuelle (≈0,15 € la passe)"),
+    oui: bool = typer.Option(False, "--oui", help="Passe le feu vert humain sans le demander"),
+    reprendre: bool = typer.Option(False, "--reprendre", help="Reprend le dernier run là où il s'est arrêté"),
+    forcer_gabarits: bool = typer.Option(False, "--forcer-gabarits", help="Ignore le cache des gabarits de collection"),
+):
+    """Le même pipeline que generate-safe, orchestré par LangGraph.
+
+    Trois choses que la version linéaire ne sait pas faire : reprendre après un
+    appel raté au lieu de tout repayer, s'arrêter net à un plafond en euros, et
+    demander un feu vert humain après le cadrage, avant de dépenser.
+    """
+    from langgraph.types import Command
+
+    from graphe.etat import etat_initial
+    from graphe.graphe import chemin_reprise, crew
+
+    proj = _load_project(project_name)
+
+    # LE FIL DE REPRISE. LangGraph range l'état sous un identifiant de fil ; le
+    # réutiliser tel quel pour un NOUVEAU run cumulerait les dépenses des deux
+    # dans le même compteur, et la garde de budget deviendrait fausse. Un fil
+    # par run, donc, et --reprendre pour retrouver le dernier.
+    marque = proj.temp_dir / "graphe_fil.txt"
+    if reprendre:
+        if not marque.exists():
+            typer.echo("❌ Aucun run à reprendre pour ce projet.")
+            raise typer.Exit(code=1)
+        fil = marque.read_text(encoding="utf-8").strip()
+    else:
+        from datetime import datetime
+        fil = f"{proj.name}-{datetime.now():%Y%m%d-%H%M%S}"
+        proj.temp_dir.mkdir(parents=True, exist_ok=True)
+        marque.write_text(fil, encoding="utf-8")
+
+    if not reprendre:
+        _annoncer_le_cout(visuel_tours, plafond)
+        if not typer.confirm("   Lancer le run ?", default=False):
+            typer.echo("   Annulé, rien n'a été dépensé.")
+            raise typer.Exit()
+
+    config = {"configurable": {"thread_id": fil}}
+    entree = (
+        Command(resume="oui")
+        if reprendre
+        else etat_initial(
+            projet=proj.name,
+            plafond_euros=plafond,
+            max_corrections=corrections,
+            passes_visuelles=visuel_tours,
+            valider_a_la_main=not oui,
+            forcer_gabarits=forcer_gabarits,
+        )
+    )
+
+    typer.echo(f"\n🚀 Graphe LangGraph — projet {proj.name}, fil {fil}\n")
+
+    with crew(proj.name) as graphe_compile:
+        etat = graphe_compile.invoke(entree, config)
+
+        # Le feu vert : le graphe s'est arrêté et attend une réponse. L'état est
+        # déjà sur disque, donc refuser ne perd rien et ne coûte rien de plus.
+        while "__interrupt__" in etat:
+            reponse = _demander_feu_vert(etat["__interrupt__"][0].value)
+            etat = graphe_compile.invoke(Command(resume=reponse), config)
+
+    _recapituler(etat, chemin_reprise(proj.name), fil)
+
+
+def _annoncer_le_cout(visuel_tours: int, plafond: float):
+    """Le coût annoncé AVANT de dépenser. Jamais un appel sans accord.
+
+    Les montants sont des ordres de grandeur mesurés sur le premier run réel,
+    pas une promesse : un brief plus long, des données clients volumineuses ou
+    plusieurs collections font monter la note. Le plafond, lui, est dur.
+    """
+    typer.echo("\n💶 Ce que ce run va coûter, par étape (ordre de grandeur) :")
+    for etape, montant in (
+        ("ingestion (si data/ non vide, mise en cache)", "0,10 à 0,40 €"),
+        ("orchestration + direction artistique", "≈ 0,20 €"),
+        ("copywriter", "0,30 à 0,80 €"),
+        ("designer (le gros morceau)", "1,00 à 2,00 €"),
+        ("seo", "≈ 0,15 €"),
+        ("collections (par collection, mis en cache)", "≈ 0,30 €"),
+    ):
+        typer.echo(f"   • {etape:<45} {montant}")
+    if visuel_tours:
+        typer.echo(f"   • critique visuelle × {visuel_tours:<32} ≈ {0.15 * visuel_tours:.2f} €")
+    typer.echo(f"\n   Total attendu : 2 à 4 € · Plafond dur du run : {plafond:.2f} €")
+    typer.echo("   La réutilisation de la direction et des gabarits fait baisser ce total.")
+
+
+def _demander_feu_vert(question: dict) -> str:
+    """L'arrêt après le cadrage : montrer, puis demander."""
+    typer.echo("\n" + "─" * 62)
+    typer.echo("⏸  FEU VERT — le cadrage est prêt, rien de coûteux n'a encore été lancé.")
+    typer.echo("─" * 62)
+    typer.echo(f"   Agents prévus      : {question.get('agents', [])}")
+    typer.echo(f"   Direction          : {'réutilisée' if question.get('direction_reutilisee') else 'nouvelle'}")
+
+    style = question.get("style_guide", {}) or {}
+    if style:
+        typer.echo(f"   Ambiance           : {style.get('ambiance', '?')}")
+        typer.echo(f"   Couleurs           : {style.get('couleurs', {})}")
+        typer.echo(f"   Polices            : {style.get('fonts', {})}")
+    typer.echo(f"   Dépensé à ce stade : {question.get('depense_a_ce_stade_euros', 0):.4f} €")
+    typer.echo(f"\n   Détail complet : {Project(question['projet']).temp_dir}/plan.json et direction.json")
+
+    return "oui" if typer.confirm("\n   Conforme au brief ? Lancer la génération ?", default=True) else "non"
+
+
+def _recapituler(etat: dict, chemin_sqlite, fil: str):
+    """Le compte rendu de fin : ce qui s'est passé, et ce que ça a coûté."""
+    from graphe.couts import depenses_non_tarifees
+
+    typer.echo("\n" + "─" * 62)
+    for ligne in etat.get("journal", []):
+        typer.echo(f"   · {ligne}")
+
+    depenses = etat.get("depenses", [])
+    if depenses:
+        typer.echo("\n   Dépense par nœud :")
+        for d in depenses:
+            typer.echo(
+                f"      {d['noeud']:<20} {d['modele']:<18} "
+                f"{formater_nombre(d['tokens_entree']):>9} in / "
+                f"{formater_nombre(d['tokens_sortie']):>8} out   {d['euros']:.4f} €"
+            )
+        non_tarifes = depenses_non_tarifees(depenses)
+        if non_tarifes:
+            typer.echo(f"      ⚠️  Modèle(s) non tarifé(s), comptés zéro : {sorted(non_tarifes)}")
+
+    typer.echo(f"\n   Total du run : {etat.get('cout_euros', 0.0):.4f} €")
+
+    arret = etat.get("arret")
+    if arret == "plafond":
+        typer.echo("   🛑 Arrêté au plafond. Relancer avec --reprendre et un plafond plus haut.")
+    elif arret == "refus_humain":
+        typer.echo("   ⏹  Cadrage refusé. Retoucher brief.md ou config.json, puis relancer.")
+    elif arret == "capture_indisponible":
+        typer.echo("   ℹ️  Critique visuelle impossible (Playwright absent). Le reste est produit.")
+
+    typer.echo(f"\n   Reprise : webcrew graphe -p <projet> --reprendre   (fil {fil})")
+    typer.echo(f"   État persisté : {chemin_sqlite}")
+
+
 if __name__ == "__main__":
     # La facture est affichée ici, et non dans chaque commande : un seul
     # point de passage, et le `finally` la garantit même si le pipeline

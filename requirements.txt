@@ -17,5 +17,15 @@ python-docx==1.2.0
 # Sans lui, toutes les autres commandes fonctionnent normalement.
 playwright==1.62.0
 
+# Orchestration V2 — la machine à états qui remplace le pipeline linéaire.
+# LangGraph sert d'ORDONNANCEUR seulement : les nœuds appellent le SDK anthropic
+# directement, jamais les abstractions de modèle de LangChain. C'est ce qui
+# permet de garder `effort`, le raisonnement adaptatif et le comptage exact.
+# langchain-core arrive comme dépendance de langgraph : présent, mais pas utilisé.
+langgraph==1.2.11
+# Le checkpointer SQLite : l'état du graphe survit à l'arrêt du processus, donc
+# un run interrompu reprend au nœud fautif au lieu de tout repayer.
+langgraph-checkpoint-sqlite==3.1.1
+
 # Développement
 pytest==8.4.2
