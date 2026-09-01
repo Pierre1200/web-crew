@@ -1,496 +1,407 @@
-# web-crew
+# web-crew V2
 
-Générateur de sites vitrines statiques piloté par une équipe d'agents IA.
-On ne touche pas au code : on le branche sur un dossier client contenant un
-brief et une configuration, et il produit un site HTML/CSS/JS complet, validé,
-optimisé et durci.
+Un crew de développement front qui produit des **sites vitrines Next.js** à
+partir d'un brief client, et qui refuse de livrer ce qui ne compile pas.
 
-```
-  ENTRÉES      brief.md  ·  config.json  ·  data/ (docx, pdf, images, textes)
-                                    │
-  ══════════════════════════════════▼══════════════════════════════════════
-  CADRAGE      INGESTION ──────────────▶  temp/context.json
-  ~0,65 €      ORCHESTRATEUR ──────────▶  temp/plan.json
-               DIRECTION ARTISTIQUE ───▶  temp/direction.json
-                                    │
-  ══════════════════════════════════▼══════════════════════════════════════
-  PRODUCTION   COPYWRITER ───────────▶  temp/textes.json
-  ~2,25 €      DESIGNER ─────────────▶  index.html · style.css · main.js
-               PAGES ────────────────▶  collections (1 appel, quel que soit N)
-               SEO ──────────────────▶  balises · sitemap.xml · robots.txt
-                                    │
-  ══════════════════════════════════▼══════════════════════════════════════
-  CONTRÔLE     VALIDATEUR ──────────▶  structure, liens, médias   (0 token)
-               CRITIQUE ────────────▶  fond des textes
-               CRITIQUE VISUELLE ───▶  rendu réel, en images      (~0,46 €)
-                                    │
-  ══════════════════════════════════▼══════════════════════════════════════
-  LIVRAISON    SÉCURITÉ ────────────▶  durcissement · SECURITE.md  (0 token)
-```
+### Les autres documents
 
-Chaque étape écrit son résultat sur le disque et reste rejouable seule : on ne
-repaie jamais une phase pour en corriger une autre.
+| Fichier | Ce qu'il contient |
+|---|---|
+| [`DEMARRAGE-V2.md`](DEMARRAGE-V2.md) | les décisions prises avant d'écrire la première ligne |
+| [`SQUELETTE.md`](SQUELETTE.md) | la composition du squelette front, et pourquoi |
+| [`graphe/LISEZMOI.md`](graphe/LISEZMOI.md) | le détail des deux graphes |
+| [`squelette/LISEZMOI.md`](squelette/LISEZMOI.md) | ce que le crew a le droit de toucher |
+| [`README-V1.md`](README-V1.md) | la V1, toujours en production sur `main` |
+| [`JOURNAL-IA.md`](JOURNAL-IA.md) | le journal de bord, à lire par une IA qui reprend le travail |
 
 ---
 
-## Installation
+## 1. Ce que c'est
 
-```bash
-python3 -m venv .venv              # Python 3.12+ requis
-source .venv/bin/activate          # Windows : .venv\Scripts\activate
-pip install -r requirements.txt
+Un outil en ligne de commande. On lui donne un dossier de projet contenant un
+brief en français et une configuration, il rend un site statique prêt à
+déployer.
 
-echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
-```
+La V2 se distingue de la V1 sur trois points.
 
-La critique visuelle a besoin d'un navigateur, à télécharger une seule fois
-(~150 Mo) :
+**La sortie est un projet Next.js, pas du HTML écrit par un modèle.** Le crew
+part d'un squelette front déjà validé et ne produit que les variations : le
+modèle de contenu, les composants, les pages, la charte, les textes.
 
-```bash
-playwright install chromium
-```
+**La validation est un compilateur, pas un jugement.** ESLint, TypeScript et
+`next build` remplacent l'inspection du HTML à coups d'expressions régulières.
+Un site qui ne passe pas ces trois portes n'est jamais publié.
 
-Sans lui, tout le reste fonctionne. Seule la commande `visuel` s'arrête, avec
-un message indiquant quoi lancer.
+**L'orchestration est une machine à états, pas une suite d'appels.** LangGraph
+permet trois choses qu'un pipeline linéaire ne sait pas faire : reprendre un
+run interrompu au nœud fautif au lieu de tout repayer, s'arrêter net à un
+plafond en euros, et demander un accord humain après le cadrage, avant la
+dépense principale.
 
-Vérification :
+## 2. Ce que ce n'est pas
 
-```bash
-python3 -m pytest tests/ -q       # 239 tests, aucun appel API, aucune clé requise
-```
+**web-crew ne génère ni back-office, ni authentification, ni règles de sécurité
+en base.** Ce n'est pas une limite technique, c'est un choix.
+
+Un back-office se fait sur mesure, en français, taillé pour la personne qui va
+s'en servir : ça ne se génère pas et ça n'a aucun intérêt à être générique. Et
+retirer l'authentification du champ de la machine élimine la classe de bug la
+plus dangereuse, celle qui passe le build en silence.
+
+**En revanche, le front produit est prêt à recevoir une base de données** de
+type Supabase, sans réécriture. C'est une propriété d'ingénierie précise,
+détaillée au chapitre 6.
 
 ---
 
-## Commandes
+## 3. Prise en main
 
-| Commande | Effet | Coût |
+### Prérequis
+
+| Outil | Version | Pourquoi |
 |---|---|---|
-| `generate -p X` | Pipeline complet | ~3,00 € |
-| `generate-safe -p X --visuel 2` | Pipeline, correction auto, critique visuelle | ~3,90 € |
-| `ingest -p X [--force]` | Digère `data/` seul | ~0,30 € |
-| `direction -p X [--archetype …]` | Rejoue la direction artistique | ~0,28 € |
-| `design-only -p X [--replan]` | Redessine le site | ~1,60 € |
-| `pages -p X [--gabarits]` | (Re)génère les collections | 0 sans `--gabarits` |
-| `seo-only -p X` | Métadonnées et sitemap | ~0,01 € |
-| `critique -p X` | Contrôle le fond des textes | ~0,08 € |
-| `visuel -p X [--corriger] [--tours N]` | Juge le rendu, applique les correctifs | ~0,46 €/passe |
-| `securiser -p X [--durcir] [--injection]` | Audit, durcissement, rapport | 0 (ou ~0,10 €) |
-| `validate -p X` | Contrôle structurel | 0 |
-| `diff -p X` | Ce que le dernier run a changé | 0 |
-| `restore -p X` | Annule le dernier run | 0 |
-| `list-agents` | Agents du registre | 0 |
+| Python | 3.12 ou plus (3.14 ici) | le crew |
+| Node et npm | 20 ou plus | la porte de build et le site |
+| Playwright | facultatif | la critique visuelle uniquement |
 
-Prévisualiser :
+### Installation
 
 ```bash
-cd projects/mon-client/output && python3 -m http.server 8080
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
-### Les coûts
+Puis renseigner `ANTHROPIC_API_KEY` dans un fichier `.env` à la racine. Ce
+fichier n'est jamais versionné.
 
-Chaque commande affiche en fin d'exécution ce qu'elle a consommé, par modèle,
-en tokens et en euros :
-
-```
-💰 Consommation du run :
-   • claude-opus-5 : 3 appel(s), 23 000 in, 61 000 out  →  1,51 €
-   • claude-sonnet-5 : 3 appel(s), 24 000 in, 11 000 out  →  0,22 €
-   • claude-haiku-4-5 : 1 appel(s), 5 000 in, 1 000 out  →  < 0,01 €
-   Total : 52 000 in, 73 000 out  →  1,74 €
-```
-
-Anthropic facture en dollars : les euros affichés sont une estimation. Les prix
-par modèle et le taux de change vivent dans [utils/tarifs.py](utils/tarifs.py),
-seul endroit à mettre à jour.
-
-Ces montants sont ceux **mesurés sur un vrai run** : un site à six sections
-avec deux collections, une cinquantaine de documents clients. Ils varient
-surtout avec le volume de contenu, pas avec le nombre de commandes.
-
-Le designer produit un site entier en un seul appel : c'est structurellement le
-poste le plus lourd, et sa sortie croît avec le nombre de sections et de
-composants. Compter 1,50 € à 1,80 € pour lui sur un site de cette taille.
-
-Les images, en revanche, ne coûtent rien : elles n'atteignent jamais le modèle,
-seul leur catalogue est transmis.
-
-### Itérer sans se ruiner
-
-Le designer représente environ 40 % de la facture. Pour retravailler un rendu,
-ne relancez pas `generate` :
+Pour la critique visuelle, une fois :
 
 ```bash
-python3 main.py direction   -p mon-client --archetype galerie-grille   # 0,28 €
-python3 main.py design-only -p mon-client                              # 1,60 €
+.venv/bin/playwright install chromium
 ```
 
-Si seul un détail visuel cloche, `visuel --corriger` coûte 0,46 € et applique
-les correctifs CSS sans rien régénérer.
+### Un premier site
 
-> `design-only` sans `--replan` rejoue l'ancien plan. Après toute modification
-> de `brief.md` ou `config.json`, `--replan` rafraîchit le cadrage pour quelques
-> centimes. Sans lui, vous payez une génération qui reproduit l'ancienne maquette.
+```bash
+mkdir -p projects/mon-client
+# y déposer brief.md et config.json, et les documents du client dans data/
+.venv/bin/python main.py front --project mon-client
+```
+
+La commande annonce le coût estimé par étape et demande confirmation avant le
+moindre appel. Elle s'arrête ensuite après le cadrage pour montrer ce qu'elle a
+compris, et attend un feu vert avant de dépenser.
 
 ---
 
-## Structure d'un projet
+## 4. Anatomie d'un projet
 
 ```
 projects/mon-client/
-├── brief.md        # le cahier des charges en langage naturel
-├── config.json     # sections, style, SEO, collections, médias
-├── data/           # documents et photos fournis par le client
-│   ├── articles/   # un .txt par page de collection
-│   └── images-extraites/   # photos sorties des .docx et .pdf (généré)
-├── output/         # le site généré, JETABLE          ← non versionné
-├── output_prev/    # sauvegarde du run précédent      ← non versionné
-├── temp/           # échanges entre agents            ← non versionné
-└── logs/           # un log par agent, plus les captures ← non versionné
+  brief.md          CE QUE VEUT LE CLIENT, en français, écrit à la main
+  config.json       identité, sections, mentions légales, collections
+  data/             les documents fournis par le client (PDF, DOCX, ODT, images)
+  site/             LE PROJET NEXT : squelette copié, puis rempli par le crew
+  output/           LE SITE LIVRÉ : recopié depuis site/out/ après le build
+  output_prev/      la version d'avant le dernier run, pour revenir en arrière
+  temp/             plan, direction, textes, points de reprise du graphe
+  logs/             un journal par agent, et les captures d'écran
 ```
 
-### `output/` est jetable
+Deux dossiers méritent une explication.
 
-Chaque génération l'écrase. Toute correction faite à la main dedans disparaît au
-run suivant : la valeur doit remonter dans `brief.md` ou `config.json`. Un
-branchement Formspree posé à la main dans le HTML, par exemple, doit devenir
-`site.formspree_id` dans la configuration.
+**`site/` est le projet Next complet**, avec son `node_modules` et son
+`package.json`. Il s'ouvre dans un éditeur, se lance avec `npm run dev`, et se
+corrige à la main si besoin. Ce n'est pas un dossier de travail interne, c'est
+le projet livrable.
 
-Deux filets protègent les runs payants. Avant chaque génération, `output/` est
-copié dans `output_prev/` : `diff` montre ce qui a changé, `restore` revient en
-arrière. Et un contrôle de pré-vol signale, avant toute dépense, un branchement
-présent dans le site mais absent de la configuration.
+**`output/` reste le dossier livré**, comme en V1. C'est ce qui permet à
+`diff`, `restore` et à l'audit de sécurité de fonctionner sans modification :
+ils regardent `output/`, quel que soit le moteur qui l'a produit.
+
+`projects/` est exclu du dépôt : les données clients n'y entrent jamais.
 
 ---
 
-## `config.json`
+## 5. Le pipeline
 
-```json
-{
-  "client": { "nom": "…", "localisation": "…", "contact_principal": "…" },
-  "site": {
-    "sections": ["Hero : accroche", "À propos", "Services", "Contact"],
-    "style": { "ambiance": "…", "couleurs_suggérées": ["…"], "typographie": "…" },
-    "formspree_id": "",
-    "url": "https://exemple.fr",
-    "collections": [
-      { "id": "blog", "titre": "Le blog", "source": "articles", "flux": true }
-    ],
-    "medias": {
-      "titre_section": "Les vidéos",
-      "items": [{ "titre": "…", "url": "https://youtu.be/XXXXXXXXXXX" }]
-    },
-    "mentions": {
-      "statut": "association loi 1901",
-      "adresse": "…",
-      "rna": "W000000000",
-      "siret": "000 000 000 00000",
-      "directeur_publication": "…",
-      "hebergeur": { "nom": "…", "adresse": "…", "site": "https://…" }
-    }
-  },
-  "seo": {
-    "type_schema": "LocalBusiness",
-    "secteur": "…",
-    "mots_cles_prioritaires": ["…"],
-    "zone_geographique": "…"
-  },
-  "output": { "project_id": "mon-client", "type": "site vitrine statique" }
+```
+préparer → squelette → ingestion → orchestration → direction
+         → ⏸ FEU VERT HUMAIN
+         → copywriter → charte → polices → front
+         → PORTE (lint, types, build) ──échec──> réparation ──┐
+              │                                              │
+              └──────────────────<───────────────────────────┘
+         → publier (site/out → output)
+         → critique visuelle → correctifs.css ──> PORTE (⟲)
+         → fin
+```
+
+| Nœud | Ce qu'il fait | Coût | Ce qu'il écrit |
+|---|---|---|---|
+| `préparer` | avertit si un travail manuel va être écrasé, sauvegarde `output/` | zéro | `output_prev/` |
+| `squelette` | copie le squelette, installe les dépendances | zéro | `site/` |
+| `ingestion` | digère `data/` : thèmes disponibles, manques | 0,10 à 0,40 € | `temp/context.json` |
+| `orchestration` | lit le brief, décide des agents et du guide de style | ≈ 0,10 € | `temp/plan.json` |
+| `direction` | arrête la composition : archétype, palette, rythme, signature | ≈ 0,10 € | `temp/direction.json` |
+| ⏸ **feu vert** | montre le cadrage, attend un accord humain | zéro | rien |
+| `copywriter` | rédige les textes à partir du contenu réel du client | 0,30 à 0,80 € | `temp/textes.json` |
+| `charte` | traduit la direction en valeurs de tokens CSS | ≈ 0,10 € | `site/app/charte.css` |
+| `polices` | télécharge et héberge les polices nommées par la charte | zéro | `site/public/polices/` |
+| `front` | modèle de contenu, couture, composants, pages | 1,50 à 3,00 € | `site/lib/`, `site/app/`, `site/contenu/` |
+| **porte** | ESLint, TypeScript, `next build` | zéro | rien |
+| `réparation` | corrige à partir du diagnostic de l'outil | 0,20 à 0,60 € | les fichiers fautifs |
+| `publier` | recopie le site bâti dans `output/` | zéro | `output/` |
+| `critique visuelle` | photographie le rendu, le juge, écrit les correctifs | ≈ 0,15 € la passe | `site/app/correctifs.css` |
+
+Les montants sont des ordres de grandeur. Le plafond, lui, est dur.
+
+### La direction artistique est mise en cache
+
+Elle est réutilisée tant qu'elle est plus récente que `brief.md` **et**
+`config.json`. Retoucher le brief invalide donc la direction, ce qui évite de
+dessiner l'ancien site avec les nouvelles instructions.
+
+---
+
+## 6. Les cinq garanties
+
+### La porte de build
+
+Trois outils qui ne se trompent pas sur ce qu'ils affirment, qui ne coûtent
+rien, et qui désignent le fichier et la ligne. Ils s'exécutent dans cet ordre
+et s'arrêtent au premier échec : corriger une erreur de type change souvent le
+résultat du build, et montrer vingt erreurs dont dix sont les conséquences des
+dix autres est le meilleur moyen de faire corriger les mauvaises.
+
+**`publier` n'a qu'une seule arête entrante, et elle vient de la porte.** Un
+livrable qui ne compile pas n'est pas un livrable en retard, c'est un livrable
+qui n'existe pas.
+
+### Le plafond en euros
+
+Chaque nœud déclare ce qu'il vient de dépenser, la somme se fait par un
+réducteur, et la garde est vérifiée **avant** chaque nœud payant. On ne peut
+pas empêcher un nœud de dépasser à lui seul, on peut refuser d'en lancer un de
+plus.
+
+Un modèle absent de `utils/tarifs.py` est signalé, jamais compté zéro en
+silence : une garde qui ignore une dépense n'est plus une garde.
+
+### Le feu vert humain
+
+Le graphe s'arrête après la direction artistique, pour quelques centimes
+dépensés, et montre les agents prévus, l'ambiance, les couleurs et les polices.
+Tout ce qui suit coûte des euros. Refuser ne coûte rien de plus.
+
+### La reprise
+
+L'état est écrit dans un SQLite du projet après chaque nœud. Un appel raté ne
+fait plus tout repayer :
+
+```bash
+.venv/bin/python main.py front -p mon-client --reprendre
+```
+
+Un fil de reprise par run : réutiliser le même pour un nouveau run cumulerait
+les dépenses des deux dans le même compteur et fausserait la garde de budget.
+
+### Le périmètre d'écriture
+
+Le crew écrit dans `site.config.ts`, `lib/types.ts`, `lib/data/`, `contenu/`,
+`composants/`, `app/**/page.tsx` et `app/composants.css`. **Toute autre
+destination est refusée avant écriture**, `next.config.ts`, `app/base.css`,
+`app/charte.css` et `app/layout.tsx` en tête. Le squelette est ce qui rend le
+résultat prévisible ; un modèle qui le réécrit le défait.
+
+---
+
+## 7. Le squelette front
+
+Le crew ne construit pas une application depuis rien. Il part de `squelette/`,
+un projet Next validé, et ne produit que les variations. Bénéfice mesurable :
+la surface où la machine peut se tromper s'effondre, et comme on produit
+beaucoup moins de code, la facture baisse.
+
+Composition complète dans [`SQUELETTE.md`](SQUELETTE.md). Trois points à
+connaître pour l'utiliser.
+
+### La règle mère : aucune donnée en dur dans le balisage
+
+Une page appelle une fonction de `lib/data/`, jamais un fichier directement.
+Ces fonctions sont `async` dès le premier jour, même pour lire un fichier
+local.
+
+```ts
+// AUJOURD'HUI
+export async function listerRealisations(): Promise<Realisation[]> {
+  const tout = await lireCollection<Realisation>("realisations");
+  return tout.filter((r) => r.en_ligne);
+}
+
+// DEMAIN, avec une base : même nom, même signature, même type de retour
+export async function listerRealisations(): Promise<Realisation[]> {
+  const { data } = await supabase
+    .from("realisations").select("*").eq("en_ligne", true);
+  return data ?? [];
 }
 ```
 
-| Champ | Rôle |
-|---|---|
-| `site.sections` | Structure imposée au designer, dans cet ordre |
-| `site.style` | Point de départ de la direction artistique |
-| `site.formspree_id` | Les 8 caractères après `/f/` dans l'URL [Formspree](https://formspree.io). Vide : le JS affiche un message honnête au lieu d'un faux « message envoyé » |
-| `site.url` | Domaine, pour les URL absolues du sitemap et des flux |
-| `site.collections` | Voir [Collections](#collections) |
-| `site.medias` | Voir [Médias](#médias) |
-| `site.mentions` | Informations légales de la page `mentions-legales.html`. Ce qui manque est listé sur la page elle-même plutôt que deviné |
-| `_note…` | Toute clé commençant par `_note`, sous `site` ou `site.style`, est une consigne transmise telle quelle au designer |
+Brancher une base devient : réécrire le corps de trois fonctions. Le contrat
+complet est dans `squelette/lib/data/LISEZMOI.md`.
 
-Exemple de consignes :
+### Un formulaire est une table
 
-```json
-"_note_sections":   "Corps en deux colonnes : gauche étroite, droite large.",
-"_note_formulaire": "PAS de formulaire de contact, un simple lien mailto."
+Si le brief demande un formulaire, il est pensé dès le premier jour comme une
+table de la future base : une fonction nommée, une charge utile aux noms des
+futures colonnes, des vérifications qui recopient les contraintes à venir.
+L'insertion se fera depuis le navigateur avec la clé publiable, autorisée par
+une règle RLS : un site statique n'a pas besoin de serveur pour écrire en base.
+
+Le crew ne produit ni schéma SQL, ni règles RLS. `squelette/outils/graine.mjs` fait
+le pont dans l'autre sens : il transforme le contenu local en `insert`, pour que
+la base démarre remplie.
+
+### Le CSS en quatre couches
+
 ```
+base.css        invariant          @layer base
+charte.css      les valeurs        @layer charte
+composants.css  engendré           @layer composants
+correctifs.css  la boucle visuelle HORS COUCHE
+```
+
+Une règle hors couche bat toutes les couches, quelle que soit leur
+spécificité. C'est ce qui permet à un correctif `.hero {…}` de l'emporter sur
+un `.section .hero {…}` sans un seul `!important`, et donc de rendre la boucle
+de correction visuelle fiable. `composants.css` est enveloppé automatiquement à
+l'écriture plutôt que confié à la mémoire du modèle.
 
 ---
 
-## Collections
+## 8. Les commandes
 
-Un site peut porter des ensembles de pages produites à partir de textes écrits
-par le client : blog, réalisations, fiches services, actualités. Le client dépose
-ses textes dans `data/<source>/`, un fichier `.txt` par page.
+### V2
 
-```
-Titre: D'où vient le nom de l'atelier ?
-Chapo: Une histoire de famille, et un mot inventé sur place.
-Date: 2026-08-14
-Couverture: atelier.jpg
-Statut: publie
+| Commande | Ce qu'elle fait |
+|---|---|
+| `front -p <projet>` | le pipeline complet : squelette, génération, porte, publication |
+| `front -p <projet> --visuel 2` | avec deux passes de critique visuelle |
+| `front -p <projet> --plafond 5` | s'arrête net à 5 € |
+| `front -p <projet> --reprendre` | reprend le dernier run là où il s'est arrêté |
+| `front -p <projet> --oui` | sans le feu vert humain |
+| `graphe -p <projet>` | le pipeline de la V1, orchestré par LangGraph |
 
-Le premier atelier a ouvert rue des Lilas, dans un ancien entrepôt.
+### V1, toujours disponibles
 
-## Les débuts
+`generate`, `generate-safe`, `design-only`, `validate`, `diff`, `restore`,
+`seo-only`, `critique`, `pages`, `direction`, `visuel`, `securiser`, `ingest`,
+`list-agents`. Voir [`README-V1.md`](README-V1.md).
 
-Trois personnes, deux établis, et beaucoup de patience.
-
-> On ne savait pas encore ce qu'on faisait, mais on le faisait bien.
-```
-
-Ce n'est pas du Markdown, volontairement. Une ligne vide sépare deux paragraphes,
-`## ` ouvre un sous-titre, `> ` une citation. Le client n'a aucune syntaxe à
-apprendre, et comme le crew n'insère jamais de HTML écrit par lui (tout est
-échappé avant insertion), l'injection est impossible par construction.
-
-Le format est permissif : sans en-tête, le titre vient du nom du fichier et la
-date de sa dernière modification. `Statut: brouillon` garde une page hors ligne.
-
-**Le coût ne dépend pas du nombre de pages.** Le modèle produit un jeu de
-gabarits par collection (page de liste, page de contenu, balisage des
-paragraphes, sous-titres, citations et images) que Python remplit ensuite pour
-chaque texte. Cinquante articles coûtent un seul appel.
-
-Les gabarits sont mis en cache dans `temp/`. Corriger une faute et régénérer est
-gratuit :
+Trois d'entre elles servent aussi à la V2, puisqu'elles travaillent sur
+`output/` :
 
 ```bash
-python3 main.py pages -p mon-client              # gratuit
-python3 main.py pages -p mon-client --gabarits   # redessine les gabarits
+main.py diff -p mon-client       # ce que le dernier run a changé
+main.py restore -p mon-client    # annuler le dernier run
+main.py securiser -p mon-client  # audit avant livraison
 ```
 
-Chaque collection reçoit un flux RSS, et le `sitemap.xml` est recalculé pour
-lister toutes les pages.
+### Vérifier un site à la main
+
+```bash
+cd projects/mon-client/site
+npm run verifier   # lint, types, build : les trois doivent passer
+npm run dev        # http://localhost:3000
+```
 
 ---
 
-## Médias
+## 9. Les coûts
 
-Le champ `site.medias` déclare des lecteurs vidéo ou audio. Il suffit de coller
-l'URL publique : le fournisseur est reconnu et l'URL d'intégration construite en
-Python, sans qu'aucun format soit inventé par un modèle.
+Mesuré sur le premier run réel de la V1 : **3,88 €** pour un site complet. La
+V2 vise le même ordre de grandeur, avec deux effets contraires : le squelette
+fait produire beaucoup moins de code, mais le front Next est plus exigeant que
+du HTML.
 
-Fournisseurs reconnus : YouTube (en `youtube-nocookie`), Vimeo, Dailymotion,
-PeerTube, Spotify, SoundCloud, Deezer.
+Le crew affiche le détail par nœud en fin de run :
 
-Les vidéos gardent leurs proportions via `aspect-ratio`, les lecteurs audio leur
-hauteur propre, et tous les iframes sont en `loading="lazy"`. La mise en page de
-la galerie suit le brief. Le validateur vérifie que chaque média déclaré est
-présent dans le HTML livré.
+```
+   Dépense par nœud :
+      orchestration        claude-sonnet-5     12 400 in /   1 800 out   0,0591 €
+      front                claude-opus-5       28 900 in /  19 400 out   0,5791 €
 
-Pour ajouter un fournisseur : une entrée dans `_FOURNISSEURS`
-([utils/embeds.py](utils/embeds.py)).
+   Total du run : 0,6382 €
+```
 
----
+Trois leviers, du plus efficace au moins efficace :
 
-## Mentions légales
+1. **le squelette**, qui fera plus pour le coût que n'importe quel changement
+   de fournisseur de modèle ;
+2. **les caches** : direction artistique, ingestion et gabarits de collection
+   sont réutilisés tant que leurs sources n'ont pas changé ;
+3. **le routage par nœud** : les tâches mécaniques n'ont pas besoin du modèle
+   le plus capable.
 
-Une page `mentions-legales.html` est générée à chaque run, sans IA : ce sont des
-faits administratifs, pas de la rédaction. Elle reprend l'en-tête et le pied de
-l'accueil pour se fondre dans le site, et n'est pas indexée.
-
-Le contenu vient de `site.mentions`, avec repli sur `client`. **Ce qui manque
-n'est jamais deviné** : la page affiche la liste des informations à compléter,
-et la commande les répète en fin d'exécution. Sur un document à portée
-juridique, un trou doit se voir.
-
-Le squelette couvre les rubriques d'usage en France (éditeur, directeur de la
-publication, hébergeur, propriété intellectuelle, données personnelles,
-cookies). Ce n'est pas un avis juridique : le client doit relire avant la mise
-en ligne.
+Les prix sont dans `utils/tarifs.py`, à tenir à jour à cet endroit et nulle
+part ailleurs.
 
 ---
 
-## Images
+## 10. Dépannage : les pièges connus
 
-### Photos piégées dans les documents
+**Le site s'affiche sans sa typographie.** La charte nomme une famille que
+Google ne connaît pas sous ce nom exact, et la feuille locale est vide.
+Vérifier `site/public/polices/polices.css` et l'orthographe des familles dans
+`site/app/charte.css`.
 
-Les clients joignent rarement leurs photos : ils les collent dans un document
-Word. Un `.docx` de 380 Ko peut ne contenir que 379 caractères de texte et quatre
-photos, invisibles pour qui ne lit que les paragraphes.
+**Un correctif visuel ne s'applique pas.** Vérifier que `app/composants.css`
+est bien dans `@layer composants`. S'il est hors couche, il se retrouve à
+égalité avec les correctifs et la spécificité reprend le dessus.
 
-L'ingestion ouvre donc les `.docx` et les `.pdf`, en sort les images et les
-dépose dans `data/images-extraites/` sous un nom dérivé du document. Elles
-rejoignent ensuite le flux normal : catalogue, suggestion d'emplacement, copie
-vers `output/assets/`.
+**`next build` échoue sur une route.** En export statique, `sitemap.ts`,
+`robots.ts` et tout `route.ts` asynchrone exigent
+`export const dynamic = "force-static"`. Le message d'erreur ne dit pas dans
+quel fichier ajouter la ligne.
 
-Deux filtrages, parce qu'un document contient autre chose que des photos. Les
-artefacts de mise en page sont écartés (moins de 5 Ko, ou moins de 120 px de
-côté : filets, puces, images d'espacement), ainsi que les fichiers `.wdp` que
-Word range à côté des PNG. Les doublons le sont aussi, par empreinte du contenu :
-un logo présent dans chaque document ne serait sinon proposé cinq fois.
+**`npm ci` très long, ou disque plein.** Chaque projet a son propre
+`node_modules`. Ne pas ruser avec un lien symbolique vers un dossier partagé :
+Turbopack refuse de construire et échoue sur « Symlink node_modules is invalid,
+it points out of the filesystem root ».
 
-### Toutes les images
+**Le site affiche « En cours » des mois après.** Un état a été calculé pendant
+le rendu d'une page au lieu de passer par `composants/Etat.tsx`. En export
+statique, tout ce qui est calculé au build est figé au jour du build.
 
-Tout fichier image de `data/` est copié dans `output/assets/` sous un nom
-compatible URL, et ses dimensions réelles sont lues en décodant l'en-tête du
-fichier (PNG, JPEG, GIF, WebP, SVG), en Python pur, sans dépendance.
+**Une page entière est invisible mais occupe sa place.** Le témoin `data-js`
+est posé et personne ne révèle les blocs. Cela n'arrive qu'en arrivant par un
+lien : un rechargement répare tout, ce qui est le meilleur moyen de ne jamais
+le remarquer en développement. Voir `composants/Comportements.tsx`.
 
-**Les images sont allégées à la copie.** Le plus grand côté est ramené à
-1600 px et le fichier réencodé : un premier run a livré 43 Mo d'images, dont un
-fichier de 4,3 Mo, ce qui ne s'affiche pas sur un réseau lent. L'orientation
-EXIF est redressée au passage, sans quoi une photo prise au téléphone s'affiche
-couchée. Le vectoriel et l'animé ne sont pas touchés.
+**Le graphe boucle sans jamais publier.** Une clé écrite par un nœud n'est pas
+déclarée dans `EtatCrew` : LangGraph la jette en silence. Un test le vérifie
+mécaniquement, le lancer avant de chercher ailleurs.
 
-Le designer reçoit un manifeste (chemin, dimensions, ratio, orientation, poids)
-et doit s'en servir en priorité. Les images de remplissage ne sont tolérées que
-là où aucune photo du client ne convient.
-
-Sans `width` et `height` sur une balise `<img>`, le navigateur ne connaît la
-place à réserver qu'une fois l'image chargée et la page saute pendant le
-chargement. C'est le défaut le plus visible d'un site amateur, et il se corrige
-avec deux attributs.
-
-Contrôles du validateur : `ressource_cassee` (fichier référencé mais absent),
-`image_inutilisee` (photo fournie jamais affichée), `placeholder_en_production`.
+**Ne jamais supprimer `.next/` pendant que `npm run dev` tourne.** Le serveur
+continue de lire des fichiers qui n'existent plus et sert des 404 sur toutes
+les pages. Arrêter le serveur d'abord.
 
 ---
 
-## Direction artistique
+## 11. État d'avancement
 
-Avant qu'une ligne de code soit écrite, un agent arrête la composition du site
-et l'écrit dans `temp/direction.json` : archétype de mise en page, palette en
-`oklch` avec ses dérivations, échelle typographique, rythme section par section,
-traitement des surfaces, politique de mouvement, et une signature (ce qui rend
-ce site reconnaissable entre tous).
-
-L'archétype est choisi dans un vocabulaire fermé, ce qui force un parti pris :
-
-| Archétype | Parti pris |
+| Étape | État |
 |---|---|
-| `editorial-asymetrique` | Deux colonnes inégales, rythme de magazine |
-| `cinematique-plein-ecran` | Grandes images, texte rare et fort |
-| `galerie-grille` | La grille d'images est la structure |
-| `document-centre` | Une colonne étroite, typographie dominante |
-| `panneau-fixe` | Une colonne fixe, une colonne qui défile |
-| `vitrine-sectionnee` | Le classique, à ne choisir que s'il est le plus juste |
+| 1. Extraire le squelette front | fait, `npm run verifier` passe |
+| 2. LangGraph par-dessus, à sortie équivalente | fait, jamais lancé contre l'API |
+| 3. MiniMax sur les nœuds mécaniques | en attente d'une clé API |
+| 4. Générateur de modèle de contenu et validation humaine | partiel |
 
-Ces décisions remplacent les principes génériques dans le prompt du designer, et
-servent de référence à la critique visuelle, qui juge l'écart entre ce qui était
-annoncé et ce qui est rendu.
+**Ce qui n'a jamais tourné contre l'API :** les deux graphes. Le câblage, les
+garde-fous, la porte de build et les garanties sont vérifiés par 330 tests et
+sur le squelette réel. Les prompts des trois agents front n'ont jamais été
+confrontés à un modèle : le premier run réel les jugera, et il faudra une passe
+de retouche derrière.
 
----
-
-## CSS moderne
-
-Les sites livrés sont en HTML/CSS/JS statique. C'est un choix : hébergement
-gratuit, chargement instantané, aucune dépendance à maintenir, et un livrable que
-le client peut déposer où il veut. La modernité est allée dans le CSS.
-
-| Outil | Apport |
-|---|---|
-| `@layer` | Feuille rangée en couches, et les correctifs visuels écrits hors couche l'emportent sans `!important` |
-| Container queries | Un composant s'adapte à la largeur de son conteneur, pas de l'écran |
-| `:has()` | Mise en page qui réagit au contenu réel |
-| `oklch()` + `color-mix()` | Système tonal dérivé de 3 ou 4 couleurs |
-| `subgrid` | Titres et boutons alignés d'une carte à l'autre |
-| `text-wrap: balance` / `pretty` | Plus de lignes veuves ni de coupures disgracieuses |
-| Propriétés logiques | `margin-inline`, `padding-block`, `inset` |
-| `animation-timeline: view()` | Révélation au défilement sans JavaScript, sous `@supports` |
-
-Le premier point est structurant. Sans couches, un correctif `.hero{…}` ajouté en
-fin de feuille ne bat pas un `.section .hero{…}` existant, plus spécifique : la
-correction automatique deviendrait un coup de dés.
-
----
-
-## Critique visuelle
-
-Le validateur prouve que le HTML est valide, jamais qu'il est beau. La commande
-`visuel` photographie le site rendu à trois largeurs (mobile 390 px, tablette
-820 px, bureau 1440 px) et soumet les images à un directeur artistique qui juge
-la conformité à la maquette, la composition, la typographie, les contrastes et le
-comportement responsive.
-
-Le verdict arrive dans `temp/critique_visuelle.json`, les captures dans
-`logs/captures/`. Seule la critique coûte des tokens : les correctifs CSS qu'elle
-rédige sont appliqués mécaniquement, sans nouvel appel.
-
----
-
-## Sécurité
-
-Un site statique a une surface d'attaque réduite : pas de serveur applicatif, pas
-de base de données, pas de dépendances à patcher, pas de comptes utilisateurs.
-Les vrais sujets sont les services tiers, le durcissement absent et les secrets
-oubliés.
-
-Le durcissement est une commande séparée, à lancer quand le rendu convient : il
-modifie le site généré.
-
-| Action | Raison |
-|---|---|
-| Polices hébergées sur le site | Sans cela, chaque visiteur transmet son adresse IP à Google. Rapatrier les fichiers supprime le transfert, la dépendance au CDN et deux connexions au chargement |
-| `_headers` et `.htaccess` | En-têtes pour Netlify/Cloudflare et Apache, avec une CSP calculée depuis le site réel |
-| `rel="noopener noreferrer"` | Une page ouverte dans un nouvel onglet ne peut plus agir sur celle du site |
-| Pot de miel anti-robot | Un champ invisible que seuls les robots remplissent |
-
-L'audit est gratuit et produit `output/SECURITE.md` : le site est livré avec son
-audit. Le rapport liste les services extérieurs contactés, ce qui a été durci, et
-ce qui reste à la charge du client.
-
-L'option `--injection` ajoute le seul appel au modèle de cet agent : la relecture
-des documents de `data/` à la recherche de passages rédigés pour détourner un
-automate. Le risque est réel puisque l'ingestion insère ces textes dans les
-prompts des autres agents.
-
----
-
-## Modèles
-
-| Agent | Modèle | Raisonnement | Effort |
-|---|---|---|---|
-| Ingestion | Sonnet 5 | ✅ | high |
-| Orchestrateur | Sonnet 5 | ✅ | high |
-| Direction artistique | Opus 5 | ✅ | **xhigh** |
-| Copywriter | Opus 5 | ✅ | high |
-| Designer | Opus 5 | ✅ | **xhigh** |
-| Pages | Opus 5 | ✅ | xhigh |
-| SEO | Haiku 4.5 | non | non |
-| Validateur | *aucun appel* | non | non |
-| Critique | Sonnet 5 | ✅ | high |
-| Critique visuelle | Opus 5 | ✅ | **xhigh** |
-| Sécurité | Sonnet 5 *(1 appel optionnel)* | ✅ | high |
-
-`effort` (de `low` à `max`) règle la profondeur de travail du modèle. C'est le
-principal levier qualité/coût. Haiku 4.5 refuse `effort` et le raisonnement
-adaptatif, d'où `EFFORT = None` et `THINKING = None` sur l'agent SEO.
-
-L'extraction de texte et d'images, le catalogage, la validation, le rendu des
-collections, l'injection SEO, le durcissement et l'audit sont réalisés en Python
-pur. Les tokens ne sont dépensés que là où l'intelligence apporte quelque chose.
-
----
-
-## Ajouter un agent
-
-Tous les agents héritent de `BaseAgent`, mais il en existe deux familles selon
-qui décide de les lancer.
-
-**Agents planifiés.** L'orchestrateur choisit de les mobiliser selon le brief.
-Ce sont ceux du registre : copywriter, designer, seo.
-
-1. Créer `agents/mon_agent.py` héritant de `BaseAgent`
-2. L'ajouter à `AGENT_REGISTRY` dans `main.py`
-3. Le présenter dans le system prompt de l'orchestrateur
-
-**Agents à étape fixe.** Leur place ne se discute pas : ingestion et direction
-arrivent avant la production, validateur, critique, critique visuelle et sécurité
-après. Ils sont appelés explicitement par `main.py` et exposés en commande.
-
-Le choix tient à une question : l'orchestrateur peut-il légitimement décider de
-sauter cette étape ? Si non, elle n'a rien à faire dans le registre.
-
----
-
-## Stack
-
-- **Python 3.12+**, Typer (CLI), python-dotenv
-- **API Claude** (SDK `anthropic`) : Opus 5, Sonnet 5, Haiku 4.5 selon l'agent
-- **Playwright** (optionnel) : capture du rendu pour la critique visuelle
-- **Extraction** : pypdf, python-docx
-- **Sortie** : HTML5, CSS3, JavaScript vanilla, zéro dépendance front
-
-239 tests, exécutables sans clé API.
+**Critère d'arrêt, décidé d'avance :** la V2 doit produire, sur un brief connu,
+un front au moins équivalent à ce que la V1 a produit. Sinon on garde la V1 et
+on sait pourquoi.
