@@ -1,0 +1,12 @@
+/* =============================================================================
+ *  LES CORRECTIFS : LE SEUL ENDROIT OÙ LA BOUCLE DE CORRECTION VISUELLE ÉCRIT.
+ * =============================================================================
+ *  Chargé en dernier : à spécificité égale, ce qui est ici gagne.
+ *
+ *  Pourquoi un fichier à part plutôt que des retouches au milieu de la charte :
+ *  une passe de correction reste relisible d'un coup d'oeil, et s'annule en
+ *  vidant ce fichier. Une retouche noyée dans 1000 lignes ne s'annule jamais.
+ *
+ *  RÈGLE : une règle ajoutée ici porte un commentaire d'une ligne disant ce
+ *  qu'elle corrige. Sans quoi personne, dans six mois, n'osera y toucher.
+ * ===========================================================================*/

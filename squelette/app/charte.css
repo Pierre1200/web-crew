@@ -1,0 +1,59 @@
+/* =============================================================================
+ *  LA CHARTE : LES VALEURS, ET RIEN D'AUTRE
+ * =============================================================================
+ *  Le crew remplit le côté droit des deux points. Il n'ajoute pas de token, il
+ *  n'en retire pas : les noms sont un contrat, base.css et composants.css les
+ *  utilisent. Ajouter une couleur ici sans l'utiliser ne coûte rien ; en
+ *  supprimer une casse silencieusement une règle ailleurs.
+ *
+ *  Les valeurs ci-dessous sont un gris lisible et neutre : un site livré tel
+ *  quel est terne, jamais illisible.
+ * ===========================================================================*/
+:root {
+  /* --- Les fonds --------------------------------------------------------- */
+  --fond:        #ffffff;  /* LE fond, du haut de la page jusqu'en bas */
+  --fond-pose:   #f7f7f5;  /* les surfaces posées dessus : cartes, encadrés */
+  --bordure:     #e2e0dc;
+
+  /* --- Les encres -------------------------------------------------------- */
+  /* Le contraste annoncé est celui mesuré sur --fond. Ne jamais descendre
+     sous 4,5:1 pour du texte courant, sous 3:1 pour un titre. */
+  --encre:       #1f1d1b;  /* texte principal */
+  --encre-douce: #5c574f;  /* texte secondaire, jamais sous 17px */
+
+  /* --- Les deux accents --------------------------------------------------- */
+  /* Un accent d'ACTION (liens, boutons) et un accent de REPÈRE (dates, états).
+     Chacun a sa variante « encre », plus foncée, seule autorisée en petit. */
+  --action:        #2f5d8a;
+  --action-encre:  #1d4468;
+  --repere:        #5d6b4a;
+  --repere-encre:  #47543a;
+
+  /* --- Ombres : larges, pâles, jamais franches ---------------------------- */
+  --ombre-douce: 0 22px 50px -30px rgba(31, 29, 27, 0.35);
+
+  /* --- Typographie -------------------------------------------------------- */
+  /* Les familles sont servies depuis /polices/, jamais depuis Google. */
+  --police-titre: Georgia, "Times New Roman", serif;
+  --police-texte: system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Quatre tailles, pas une de plus. `clamp` fait la transition entre
+     téléphone et grand écran sans point de rupture. */
+  --t-affiche: clamp(2.6rem, 8vw, 5rem);
+  --t-section: clamp(1.9rem, 4vw, 2.8rem);
+  --t-nom:     clamp(1.35rem, 2.2vw, 1.8rem);
+  --t-chapo:   clamp(1.2rem, 1.8vw, 1.5rem);
+  --t-corps:   clamp(1.0625rem, 0.4vw + 1rem, 1.1875rem);
+  --t-petit:   clamp(0.95rem, 0.2vw + 0.9rem, 1rem);
+
+  /* --- Rythme ------------------------------------------------------------- */
+  --gouttiere: clamp(1.5rem, 5vw, 4rem);
+  /* Le blanc entre deux sections vaut DEUX fois cette valeur (bas de l'une,
+     haut de la suivante). C'est le seul réglage à toucher pour aérer la page. */
+  --section-y: clamp(2.5rem, 4.5vw, 4rem);
+  --large:     72rem;
+  --texte:     42rem;  /* la largeur d'une colonne de lecture */
+
+  /* Démarre vite, freine longuement : le mouvement d'un objet qui se pose. */
+  --ease-douce: cubic-bezier(0.16, 1, 0.3, 1);
+}

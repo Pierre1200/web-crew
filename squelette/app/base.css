@@ -1,0 +1,228 @@
+/* =============================================================================
+ *  BASE : ce qui est vrai pour TOUS les sites. Invariant, jamais engendré.
+ * =============================================================================
+ *  Rien ici ne décide d'une couleur ni d'une taille : tout passe par les tokens
+ *  de charte.css. On ne trouve donc dans ce fichier que de la structure, de
+ *  l'accessibilité et des garde-fous.
+ * ===========================================================================*/
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  /* Sans cette marge, une ancre place le titre visé sous l'en-tête fixe. */
+  scroll-padding-top: 6rem;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--fond);
+  color: var(--encre);
+  font-family: var(--police-texte);
+  font-size: var(--t-corps);
+  line-height: 1.65;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+h1, h2, h3 {
+  font-family: var(--police-titre);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+p { margin: 0 0 1.1em; }
+p:last-child { margin-bottom: 0; }
+
+/* `height: auto` évite que l'image se déforme quand le CSS impose une largeur
+   et que le HTML porte encore les dimensions du fichier. */
+img { max-width: 100%; height: auto; display: block; }
+
+a { color: var(--action-encre); text-underline-offset: 0.2em; }
+a:hover { color: var(--encre); }
+
+/* Un contour de focus visible au clavier, partout, sans exception : c'est la
+   première exigence d'accessibilité, et la plus souvent supprimée par erreur. */
+:focus-visible {
+  outline: 3px solid var(--action-encre);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Visible par un lecteur d'écran, invisible à l'oeil. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Le premier élément focusable de la page : il permet de sauter le menu.
+   Hors écran tant qu'il n'a pas le focus. */
+.lien-evitement { position: absolute; left: -9999px; }
+.lien-evitement:focus {
+  left: 1rem; top: 1rem; z-index: 100;
+  background: var(--fond-pose); color: var(--encre);
+  padding: 0.75rem 1rem; border-radius: 4px;
+}
+
+/* -----------------------------------------------------------------------------
+ *  MISE EN PAGE
+ * ---------------------------------------------------------------------------*/
+.conteneur {
+  width: min(100% - 2 * var(--gouttiere), var(--large));
+  margin-inline: auto;
+}
+/* Une colonne de lecture : au-delà d'environ 75 caractères, l'oeil perd la
+   ligne suivante en revenant à la marge. */
+.conteneur--texte { max-width: var(--texte); }
+
+.section { padding-block: var(--section-y); }
+.section--tete { padding-top: calc(var(--section-y) * 1.5); }
+
+.entete-section { max-width: 52ch; margin-bottom: clamp(1.75rem, 3.5vw, 2.75rem); }
+
+/* -----------------------------------------------------------------------------
+ *  LES CLASSES QUE LE SQUELETTE LUI-MÊME UTILISE
+ * -----------------------------------------------------------------------------
+ *  Le strict nécessaire pour qu'un site vide soit déjà lisible et correctement
+ *  hiérarchisé. Tout le reste de l'habillage est dans composants.css.
+ * ---------------------------------------------------------------------------*/
+.titre-page { font-size: var(--t-section); margin-bottom: 0.5rem; }
+
+/* Le mot au-dessus du titre : il situe la page, il ne la titre pas. D'où la
+   petite taille et l'encre douce, jamais un second titre. */
+.surtitre {
+  font-size: var(--t-petit); text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--encre-douce); margin-bottom: 0.4rem;
+}
+
+.chapo { font-size: var(--t-chapo); color: var(--encre-douce); max-width: 46ch; }
+
+/* Le trait tracé sous les titres. `color` le pilote : le SVG est en
+   currentColor, donc il suit toute règle de couleur héritée. */
+.trait { display: block; width: 7rem; height: 0.6rem; margin: 0.9rem 0 1.25rem; color: var(--action); }
+
+.article__nav { display: flex; flex-wrap: wrap; gap: 0.9rem; margin-top: 2rem; }
+
+/* La pastille d'état, remplie par composants/Etat.tsx. */
+.etat {
+  display: inline-block; margin-left: 0.6rem;
+  font-size: var(--t-petit); line-height: 1.4;
+  padding: 0.1rem 0.6rem; border: 1px solid currentColor; border-radius: 999px;
+}
+.etat--en-cours { color: var(--repere-encre); }
+.etat--a-venir  { color: var(--action-encre); }
+.etat--passee   { color: var(--encre-douce); }
+
+/* Les mentions légales : une liste de définitions, donc deux colonnes. */
+.mentions dl { display: grid; grid-template-columns: minmax(10rem, auto) 1fr; gap: 0.4rem 1.5rem; margin: 0 0 2rem; }
+.mentions dt { color: var(--encre-douce); font-size: var(--t-petit); }
+.mentions dd { margin: 0; }
+.mentions h2 { font-size: var(--t-nom); margin: 2rem 0 0.75rem; }
+/* L'encadré des mentions manquantes : il doit se voir, c'est sa seule raison
+   d'être. */
+.mentions__alerte { background: var(--fond-pose); border-left: 4px solid var(--action); padding: 1rem 1.2rem; border-radius: 0 4px 4px 0; }
+
+@media (max-width: 34rem) {
+  .mentions dl { grid-template-columns: 1fr; }
+  .mentions dd { margin-bottom: 0.6rem; }
+}
+
+/* -----------------------------------------------------------------------------
+ *  LES APPARITIONS AU DÉFILEMENT
+ * -----------------------------------------------------------------------------
+ *  Le contenu n'est caché QUE si [data-js] est présent sur <html>, et ce témoin
+ *  est posé par composants/Comportements.tsx. Si le JavaScript ne charge pas,
+ *  rien n'est jamais caché : une page lisible sans script est la règle.
+ * ---------------------------------------------------------------------------*/
+[data-js] [data-reveal] {
+  opacity: 0;
+  transform: translateY(1.25rem);
+  transition: opacity 0.7s var(--ease-douce), transform 0.7s var(--ease-douce);
+}
+[data-js] [data-reveal][data-visible="true"] { opacity: 1; transform: none; }
+
+/* -----------------------------------------------------------------------------
+ *  BOUTONS ET FORMULAIRES : la structure seule, la peau est ailleurs.
+ * ---------------------------------------------------------------------------*/
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  /* 2,75rem de haut : la cible tactile minimale recommandée. */
+  min-height: 2.75rem; padding: 0.7rem 1.4rem;
+  border: 2px solid transparent; border-radius: 4px;
+  font: inherit; text-decoration: none; cursor: pointer;
+}
+.btn--plein { background: var(--action-encre); color: var(--fond); }
+.btn--contour { border-color: var(--encre); color: var(--encre); background: none; }
+.btn[disabled] { opacity: 0.6; cursor: default; }
+
+.champ { margin-bottom: 0.9rem; }
+.champ label { display: block; font-size: var(--t-petit); margin-bottom: 0.3rem; }
+.champ input, .champ textarea, .champ select {
+  width: 100%; padding: 0.7rem 0.8rem;
+  border: 1px solid var(--bordure); border-radius: 4px;
+  font: inherit; color: inherit; background: var(--fond);
+}
+.champ textarea { min-height: 9rem; resize: vertical; }
+.champ__aide { font-size: var(--t-petit); color: var(--encre-douce); margin: 0.3rem 0 0; }
+/* L'erreur s'affiche À CÔTÉ du champ fautif, jamais dans un bandeau en haut
+   de page où personne ne fait le lien. */
+.champ__erreur { font-size: var(--t-petit); color: var(--action-encre); margin: 0.3rem 0 0; }
+.champ--erreur input, .champ--erreur textarea { border-color: var(--action-encre); }
+
+/* Le champ-piège : sorti de l'écran, jamais display:none, que certains robots
+   savent détecter. */
+.piege { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+.reponse { margin-top: 1rem; padding: 1rem 1.2rem; border-radius: 4px; border: 1px solid var(--bordure); }
+
+/* -----------------------------------------------------------------------------
+ *  EN-TÊTE, PIED, ET LE CADRE EN ATTENTE D'IMAGE
+ * ---------------------------------------------------------------------------*/
+.entete { position: sticky; top: 0; z-index: 10; background: var(--fond); }
+.entete[data-defile="true"] { border-bottom: 1px solid var(--bordure); }
+.entete__interieur { display: flex; align-items: center; gap: 1.5rem; justify-content: space-between; padding-block: 1rem; }
+.marque { font-family: var(--police-titre); font-size: 1.25rem; text-decoration: none; color: var(--encre); }
+.nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 1rem; }
+
+.pied { border-top: 1px solid var(--bordure); padding-block: clamp(2.5rem, 5vw, 4rem) 3rem; }
+.pied__interieur { display: flex; flex-wrap: wrap; gap: 2rem; justify-content: space-between; }
+.pied__liens { display: flex; flex-wrap: wrap; gap: 0.4rem 1.5rem; list-style: none; padding: 0; margin: 0; }
+
+/* Le cadre tient EXACTEMENT la place de la future photo : le jour où elle
+   arrive, la page ne bouge pas. */
+.cadre { margin: 0; }
+.cadre__zone {
+  display: grid; place-items: center;
+  border: 2px dashed var(--bordure); border-radius: 4px;
+  color: var(--encre-douce); background: var(--fond-pose);
+}
+.cadre--4x3 .cadre__zone   { aspect-ratio: 4 / 3; }
+.cadre--16x10 .cadre__zone { aspect-ratio: 16 / 10; }
+.cadre--1x1 .cadre__zone   { aspect-ratio: 1 / 1; }
+.cadre__icone { width: 3rem; height: auto; opacity: 0.5; }
+.cadre__legende { font-size: var(--t-petit); color: var(--encre-douce); margin-top: 0.5rem; }
+
+/* -----------------------------------------------------------------------------
+ *  RÉGLAGES SYSTÈME ET IMPRESSION
+ * ---------------------------------------------------------------------------*/
+
+/* « Réduire les animations » n'est pas un confort : pour certaines personnes,
+   le mouvement déclenche des vertiges. On coupe tout. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  [data-js] [data-reveal] { opacity: 1; transform: none; }
+}
+
+@media print {
+  .entete, .pied__liens, .lien-evitement, .btn { display: none; }
+  body { background: #fff; color: #000; font-size: 11pt; }
+  /* Une adresse imprimée qui ne dit pas où elle mène ne sert à rien. */
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 9pt; }
+}

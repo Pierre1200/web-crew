@@ -208,10 +208,85 @@ l'étape « avec back-office ».
 
 ## Reste à trancher
 
-- **Le service du formulaire de contact.** `envoyerMessage()` garde sa
-  signature, mais son corps doit poster quelque part. Par défaut : une adresse
-  d'envoi lue dans `site.config.ts`, pour ne dépendre d'aucun fournisseur, et
-  un lien de courriel visible en secours comme chez lacabane.
+- **La destination provisoire du formulaire.** `envoyerMessage()` garde sa
+  signature ; il lui faut une adresse d'envoi tant qu'il n'y a pas de base.
+  `null` par défaut, ce qui désactive le formulaire et ne laisse que le lien
+  de courriel.
 - **La suite immédiate**, mécanique et sans appel API : écrire le squelette,
   lancer `npm run verifier` dessus, vérifier qu'un site vide construit et se
   sert.
+
+---
+
+## Ce que l'écriture a appris
+
+Le squelette est écrit dans `squelette/`. `npm run verifier` passe : ESLint,
+TypeScript, puis la construction. Sept adresses sont produites, et le site vide
+se sert.
+
+Trois choses ne se devinaient pas depuis la lecture seule.
+
+**`export const dynamic = "force-static"` est obligatoire sur `sitemap.ts` et
+`robots.ts`.** Dès qu'une de ces routes est `async`, Next la classe comme
+dynamique et refuse de construire. Le message d'erreur ne dit pas dans quel
+fichier ajouter la ligne. C'est deux minutes quand on sait, une demi-heure
+sinon : le squelette les porte déjà.
+
+**On ne peut plus écrire `useEffect(() => setState(...))`.** La règle
+`react-hooks/set-state-in-effect` refuse désormais un état posé directement
+dans un effet, rendus en cascade. `composants/Etat.tsx` passe donc par
+`useSyncExternalStore`, qui est la façon prévue de dire « cette valeur vient de
+l'extérieur de React ». Le résultat est plus court et plus juste.
+
+**Une page ne peut pas contenir de dl vide.** Sur les mentions légales, un
+titre suivi d'une liste vide ressemble à une panne. Ce qui manque s'écrit en
+toutes lettres.
+
+Deux ajouts par rapport à la composition prévue :
+
+- `outils/graine.mjs` : lit une collection de `contenu/` et crache les `insert`
+  correspondants. C'est la continuité entre les deux étapes du produit, promise
+  dans `DEMARRAGE-V2.md`, et elle tient en soixante lignes.
+- `app/mentions-legales/page.tsx` : la page existe dans le squelette, puisque
+  le pied de page y renvoie et qu'un lien mort en bas de site est une faute.
+
+---
+
+## Un formulaire est une table
+
+`lib/data/` n'est pas seulement la lecture. Si le brief demande un formulaire,
+il est pensé dès le premier jour comme une TABLE de la future base, et non
+comme un envoi de courriel déguisé. C'est le même travail de couture, du côté
+écriture, et il obéit aux mêmes règles.
+
+Ce que ça veut dire concrètement, dans `lib/data/messages.ts` :
+
+- une fonction nommée, `envoyerMessage(message)`, appelée par le formulaire qui
+  ne sait rien de ce qu'il y a derrière ;
+- une charge utile typée aux noms des futures colonnes, en minuscules avec des
+  tirets bas ;
+- ce qu'on n'envoie PAS : ni `id` (la base le fabrique), ni `cree_le` (elle
+  l'horodate), ni `lu` (c'est l'affaire d'un back-office qui n'existe pas) ;
+- des vérifications qui recopient les contraintes que portera la table, dont la
+  liste fermée des motifs, qui deviendra une contrainte `check` ;
+- une destination provisoire dans `site.config.ts`, `null` par défaut. Sans
+  destination, le formulaire dit qu'il n'a pas pu envoyer et affiche le
+  courriel direct. Il ne fait jamais semblant.
+
+Le jour du branchement, seul le corps change :
+
+```ts
+const { error } = await supabase.from("messages").insert(message);
+return error ? { etat: "echec" } : { etat: "envoye" };
+```
+
+**L'insertion se fait depuis le navigateur**, avec la clé publiable, autorisée
+par une règle RLS « chacun peut déposer un message ». Un site statique n'a donc
+pas besoin de serveur pour écrire en base : c'est ce qui rend le branchement
+possible sans changer d'hébergement.
+
+Le crew ne produit ni schéma SQL, ni règles RLS, ni back-office. La forme est
+prête, le reste s'écrit à la main le jour venu.
+
+Le contrat complet, lisible par le nœud de génération, est dans
+`squelette/lib/data/LISEZMOI.md`.
