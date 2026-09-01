@@ -105,3 +105,124 @@ aussi après **le modèle de contenu**, qui n'existe pas encore : c'est l'étape
 Le graphe produit toujours le HTML de la V1. Le brancher sur le squelette Next
 et la porte `npm run verifier` est le travail qui suit, une fois l'équivalence
 constatée.
+
+---
+
+# Le graphe front : le crew branché sur le squelette Next
+
+`graphe/front.py`, commande `webcrew front`. Même colonne vertébrale, mais la
+sortie n'est plus du HTML écrit par un modèle : c'est un projet Next bâti par
+un compilateur.
+
+```bash
+webcrew front -p mon-projet              # feu vert humain après le cadrage
+webcrew front -p mon-projet --visuel 2   # avec deux passes de critique visuelle
+webcrew front -p mon-projet --reprendre  # reprend le dernier run
+```
+
+```
+préparer → squelette → ingestion → orchestration → direction
+         → ⏸ FEU VERT
+         → copywriter → charte → front
+         → PORTE (lint, types, build) ──échec──> réparation ──┐
+              │                                              │
+              └──────────────────<───────────────────────────┘
+         → publier (site/out → output)
+         → critique visuelle → correctifs.css ──> PORTE (⟲)
+         → fin
+```
+
+## La règle qui justifie l'étape entière
+
+**On ne publie jamais un site qui ne passe pas la porte.** Un livrable qui ne
+compile pas n'est pas un livrable en retard, c'est un livrable qui n'existe
+pas. `publier` n'a qu'une seule arête entrante, et elle vient de `porte` : un
+test le vérifie, parce que le jour où une seconde apparaîtrait, tout le reste
+ne servirait plus à rien.
+
+## Ce que la porte change
+
+| | V1 | V2 |
+|---|---|---|
+| qui juge | un modèle, sur une page | ESLint, TypeScript, `next build` |
+| coût | des jetons | zéro |
+| précision | « il manque peut-être une section » | fichier, ligne, code d'erreur |
+| réparation | aiguillage sur un type déduit | le diagnostic de l'outil, et le fichier fautif |
+
+Les trois étapes s'arrêtent à la première qui échoue : corriger une erreur de
+type change souvent le résultat du build, et montrer vingt erreurs dont dix
+sont les conséquences des dix autres est le meilleur moyen de faire corriger
+les mauvaises.
+
+## Les trois agents front
+
+**`CharteAgent` ne produit pas de CSS, il produit des valeurs.** Un JSON
+`{token: valeur}`, que Python pose dans `app/charte.css`. Le modèle ne peut pas
+casser une feuille qu'il n'écrit pas, et une valeur contenant `;`, `}` ou
+`url(` est refusée avant d'être posée.
+
+**`FrontAgent` écrit le modèle de contenu, la couture, les composants et les
+pages en un seul appel.** Ces fichiers se répondent les uns aux autres : les
+produire en trois appels, c'est produire trois versions d'un même contrat.
+
+**`ReparateurAgent` reçoit le diagnostic de l'outil et le fichier fautif.** Il
+lui est explicitement interdit de faire passer la porte en supprimant l'appel,
+en désactivant une règle ou en mettant `any`.
+
+## Deux décisions qui tiennent tout
+
+**On ne transporte jamais du code dans du JSON.** Les fichiers voyagent entre
+des marqueurs de ligne :
+
+```
+=== FICHIER: lib/types.ts ===
+export type Realisation = { slug: string };
+=== FIN ===
+```
+
+Un fichier TSX entier échappé dans une chaîne JSON, c'est exactement ce qui a
+lâché deux fois sur douze au premier run réel. Ici il n'y a rien à échapper, et
+un fichier sans marqueur de fin est ignoré : une réponse coupée ne produit
+jamais un fichier à moitié écrit.
+
+**Le squelette est protégé par une liste blanche.** Le crew écrit dans
+`site.config.ts`, `lib/types.ts`, `lib/data/`, `contenu/`, `composants/`,
+`app/**/page.tsx` et `app/composants.css`. Toute autre destination est refusée
+avant écriture, `next.config.ts` et `app/base.css` en tête. Le squelette est ce
+qui rend le résultat prévisible ; un modèle qui le réécrit le défait.
+
+## La documentation locale de Next, injectée dans le prompt
+
+`utils/docs_next.py` lit `node_modules/next/dist/docs/` du projet et en tire
+deux choses qu'un modèle ne peut pas deviner : la table des noms de fichiers
+réservés par la version installée, et la liste de ce que `output: 'export'`
+interdit.
+
+C'est la parade au piège de `DEMARRAGE-V2.md` : Next 16 a renommé
+`middleware.ts` en `proxy.ts`. Un modèle entraîné sur la version d'avant écrit
+`middleware.ts`, le build passe, TypeScript est content, et le fichier ne
+s'exécute jamais. Aucune porte automatique n'attrape ça. La documentation
+installée, elle, dit noir sur blanc « deprecated, renamed to proxy.js ».
+
+Coût : environ 650 jetons par appel, et zéro pour l'extraction.
+
+## Le sort de `output/`
+
+Le site bâti (`site/out/`) est recopié dans `output/`, qui reste le dossier
+LIVRÉ. `webcrew diff`, `webcrew restore` et l'audit de sécurité continuent donc
+de fonctionner sans être modifiés : ils regardent `output/`, et `output/`
+contient toujours le site livrable, quel que soit le moteur qui l'a produit.
+La critique visuelle aussi : elle photographie `output/index.html`, qui existe.
+
+## Ce qui reste à faire
+
+Le graphe front n'a **jamais tourné contre l'API**. Ce qui est vérifié est le
+câblage, les garde-fous et la porte, avec des doublures et sur le squelette
+réel. Les prompts des trois agents front n'ont jamais été confrontés à un
+modèle : c'est le premier run réel qui les jugera, et il faudra une passe de
+retouche après.
+
+Le feu vert s'arrête après la direction artistique. `DEMARRAGE-V2.md` le veut
+aussi après le modèle de contenu, qui est produit par `FrontAgent` en même
+temps que les pages. Les séparer en deux nœuds, avec un second arrêt entre les
+deux, est le prolongement naturel une fois le premier run passé.

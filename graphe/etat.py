@@ -43,6 +43,12 @@ class EtatCrew(TypedDict, total=False):
     agents_planifies: list[str]
     direction_reutilisee: bool
     validation: dict
+    # Le verdict de la porte de build du graphe front (utils/verifier.py).
+    # ⚠️ TOUTE CLÉ ÉCRITE PAR UN NŒUD DOIT ÊTRE DÉCLARÉE ICI. LangGraph jette
+    # silencieusement ce qui n'est pas dans le schéma : le nœud croit avoir
+    # écrit, le suivant lit une clé absente, et l'aiguillage part du mauvais
+    # côté sans qu'aucune erreur ne soit levée.
+    resultat_porte: dict
     critique: dict
     correctifs_appliques: int
     pages_collections: int

@@ -20,6 +20,12 @@ class Project:
         self.config_path = self.root / "config.json"
         self.data_dir    = self.root / "data"
         self.output_dir  = self.root / "output"
+        # LE SITE NEXT DE LA V2. Le squelette y est copié, le crew le remplit,
+        # `npm run build` en sort un export statique dans site/out/.
+        # output_dir reste le dossier LIVRÉ : il reçoit le contenu de site/out/,
+        # ce qui laisse diff, restore et l'audit de sécurité fonctionner sans
+        # rien changer.
+        self.site_dir    = self.root / "site"
         self.temp_dir    = self.root / "temp"
         self.logs_dir    = self.root / "logs"
 

@@ -858,21 +858,7 @@ def graphe(
 
     proj = _load_project(project_name)
 
-    # LE FIL DE REPRISE. LangGraph range l'état sous un identifiant de fil ; le
-    # réutiliser tel quel pour un NOUVEAU run cumulerait les dépenses des deux
-    # dans le même compteur, et la garde de budget deviendrait fausse. Un fil
-    # par run, donc, et --reprendre pour retrouver le dernier.
-    marque = proj.temp_dir / "graphe_fil.txt"
-    if reprendre:
-        if not marque.exists():
-            typer.echo("❌ Aucun run à reprendre pour ce projet.")
-            raise typer.Exit(code=1)
-        fil = marque.read_text(encoding="utf-8").strip()
-    else:
-        from datetime import datetime
-        fil = f"{proj.name}-{datetime.now():%Y%m%d-%H%M%S}"
-        proj.temp_dir.mkdir(parents=True, exist_ok=True)
-        marque.write_text(fil, encoding="utf-8")
+    fil = _fil_de_reprise(proj, reprendre, "graphe_fil.txt")
 
     if not reprendre:
         _annoncer_le_cout(visuel_tours, plafond)
@@ -908,26 +894,43 @@ def graphe(
     _recapituler(etat, chemin_reprise(proj.name), fil)
 
 
-def _annoncer_le_cout(visuel_tours: int, plafond: float):
+ETAPES_V1 = (
+    ("ingestion (si data/ non vide, mise en cache)", "0,10 à 0,40 €"),
+    ("orchestration + direction artistique", "≈ 0,20 €"),
+    ("copywriter", "0,30 à 0,80 €"),
+    ("designer (le gros morceau)", "1,00 à 2,00 €"),
+    ("seo", "≈ 0,15 €"),
+    ("collections (par collection, mis en cache)", "≈ 0,30 €"),
+)
+
+# Le front Next remplace le designer HTML par la charte et le front, et ajoute
+# une réparation guidée par le compilateur. Les montants sont des ESTIMATIONS
+# à confirmer sur un premier run réel : rien ne les a encore mesurés.
+ETAPES_FRONT = (
+    ("squelette + npm ci", "gratuit"),
+    ("ingestion (si data/ non vide, mise en cache)", "0,10 à 0,40 €"),
+    ("orchestration + direction artistique", "≈ 0,20 €"),
+    ("copywriter", "0,30 à 0,80 €"),
+    ("charte (valeurs des tokens)", "≈ 0,10 €"),
+    ("front : contenu, couture, pages (le gros morceau)", "1,50 à 3,00 €"),
+    ("porte de build (lint, types, next build)", "gratuit"),
+    ("réparation, par tentative", "0,20 à 0,60 €"),
+)
+
+
+def _annoncer_le_cout(visuel_tours: int, plafond: float, etapes=ETAPES_V1):
     """Le coût annoncé AVANT de dépenser. Jamais un appel sans accord.
 
-    Les montants sont des ordres de grandeur mesurés sur le premier run réel,
-    pas une promesse : un brief plus long, des données clients volumineuses ou
-    plusieurs collections font monter la note. Le plafond, lui, est dur.
+    Les montants sont des ordres de grandeur, pas une promesse : un brief plus
+    long, des données clients volumineuses ou plusieurs collections font monter
+    la note. Le plafond, lui, est dur.
     """
     typer.echo("\n💶 Ce que ce run va coûter, par étape (ordre de grandeur) :")
-    for etape, montant in (
-        ("ingestion (si data/ non vide, mise en cache)", "0,10 à 0,40 €"),
-        ("orchestration + direction artistique", "≈ 0,20 €"),
-        ("copywriter", "0,30 à 0,80 €"),
-        ("designer (le gros morceau)", "1,00 à 2,00 €"),
-        ("seo", "≈ 0,15 €"),
-        ("collections (par collection, mis en cache)", "≈ 0,30 €"),
-    ):
+    for etape, montant in etapes:
         typer.echo(f"   • {etape:<45} {montant}")
     if visuel_tours:
         typer.echo(f"   • critique visuelle × {visuel_tours:<32} ≈ {0.15 * visuel_tours:.2f} €")
-    typer.echo(f"\n   Total attendu : 2 à 4 € · Plafond dur du run : {plafond:.2f} €")
+    typer.echo(f"\n   Plafond dur du run : {plafond:.2f} €")
     typer.echo("   La réutilisation de la direction et des gabarits fait baisser ce total.")
 
 
@@ -983,6 +986,84 @@ def _recapituler(etat: dict, chemin_sqlite, fil: str):
 
     typer.echo(f"\n   Reprise : webcrew graphe -p <projet> --reprendre   (fil {fil})")
     typer.echo(f"   État persisté : {chemin_sqlite}")
+
+
+@app.command()
+def front(
+    project_name: str = typer.Option(..., "--project", "-p", help="Nom du projet"),
+    plafond: float = typer.Option(8.0, "--plafond", help="Plafond de dépense du run, en euros"),
+    corrections: int = typer.Option(3, "--corrections", help="Tentatives de réparation maximum"),
+    visuel_tours: int = typer.Option(0, "--visuel", help="Passes de critique visuelle (≈0,15 € la passe)"),
+    oui: bool = typer.Option(False, "--oui", help="Passe le feu vert humain sans le demander"),
+    reprendre: bool = typer.Option(False, "--reprendre", help="Reprend le dernier run là où il s'est arrêté"),
+):
+    """Génère un site Next à partir du squelette, avec la porte de build.
+
+    C'est la V2 : la sortie n'est plus du HTML écrit par un modèle, mais un
+    projet Next bâti par un compilateur. Un site qui ne passe pas ESLint,
+    TypeScript et `next build` n'est jamais publié.
+    """
+    from langgraph.types import Command
+
+    from graphe.etat import etat_initial
+    from graphe.front import chemin_reprise, crew_front
+
+    proj = _load_project(project_name)
+    fil = _fil_de_reprise(proj, reprendre, "graphe_front_fil.txt")
+
+    if not reprendre:
+        _annoncer_le_cout(visuel_tours, plafond, ETAPES_FRONT)
+        if not typer.confirm("   Lancer le run ?", default=False):
+            typer.echo("   Annulé, rien n'a été dépensé.")
+            raise typer.Exit()
+
+    config = {"configurable": {"thread_id": fil}}
+    entree = (
+        Command(resume="oui")
+        if reprendre
+        else etat_initial(
+            projet=proj.name, plafond_euros=plafond, max_corrections=corrections,
+            passes_visuelles=visuel_tours, valider_a_la_main=not oui,
+        )
+    )
+
+    typer.echo(f"\n🚀 Graphe front Next — projet {proj.name}, fil {fil}\n")
+
+    with crew_front(proj.name) as graphe_compile:
+        etat = graphe_compile.invoke(entree, config)
+        while "__interrupt__" in etat:
+            reponse = _demander_feu_vert(etat["__interrupt__"][0].value)
+            etat = graphe_compile.invoke(Command(resume=reponse), config)
+
+    _recapituler(etat, chemin_reprise(proj.name), fil)
+
+    resultat = etat.get("resultat_porte") or {}
+    if resultat and not resultat.get("valide"):
+        typer.echo(
+            "\n   ⚠️  La porte de build n'est jamais passée : rien n'a été publié. "
+            f"Le détail est dans {proj.site_dir}."
+        )
+
+
+def _fil_de_reprise(proj, reprendre: bool, marque_nom: str) -> str:
+    """L'identifiant du fil LangGraph, un par run.
+
+    Réutiliser le même fil pour un NOUVEAU run cumulerait les dépenses des deux
+    dans le même compteur, et la garde de budget deviendrait fausse.
+    """
+    from datetime import datetime
+
+    marque = proj.temp_dir / marque_nom
+    if reprendre:
+        if not marque.exists():
+            typer.echo("❌ Aucun run à reprendre pour ce projet.")
+            raise typer.Exit(code=1)
+        return marque.read_text(encoding="utf-8").strip()
+
+    fil = f"{proj.name}-{datetime.now():%Y%m%d-%H%M%S}"
+    proj.temp_dir.mkdir(parents=True, exist_ok=True)
+    marque.write_text(fil, encoding="utf-8")
+    return fil
 
 
 if __name__ == "__main__":
