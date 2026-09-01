@@ -89,6 +89,15 @@ def test_tous_les_noeuds_sont_atteignables():
     assert "porte" in noeuds and "publier" in noeuds
 
 
+def test_les_polices_sont_hebergees_avant_la_generation():
+    """La charte nomme des familles ; si personne ne les télécharge, le site se
+    construit, passe la porte, et perd sa typographie sans un mot."""
+    dessin = gf.construire().compile().get_graph()
+    aretes = {(a.source, a.target) for a in dessin.edges}
+    assert ("charte", "polices") in aretes
+    assert {s for s, t in aretes if t == "front"} == {"polices"}
+
+
 def test_la_porte_est_le_seul_chemin_vers_la_publication():
     """S'il existait une autre arête vers `publier`, tout le reste ne servirait
     à rien : on pourrait publier sans compiler."""
@@ -125,6 +134,7 @@ def _graphe_double(monkeypatch, resultats_porte, couts=None):
     monkeypatch.setattr(noeuds, "direction", facture("direction"))
 
     monkeypatch.setattr(gf, "squelette", lambda e: {"journal": ["squelette"]})
+    monkeypatch.setattr(gf, "polices", lambda e: {"journal": ["polices"]})
     monkeypatch.setattr(gf, "charte", facture("charte"))
     monkeypatch.setattr(gf, "front", facture("front"))
     monkeypatch.setattr(

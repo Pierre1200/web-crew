@@ -70,6 +70,14 @@ class VisuelAgent(BaseAgent):
             contenus = sorted(
                 p for p in dossier.glob("*.html") if p.name != "index.html"
             )
+            # DEUX DISPOSITIONS DE FICHIERS, une par génération. La V1 écrit
+            # « blog/mon-article.html ». L'export Next, avec trailingSlash,
+            # écrit « blog/mon-article/index.html » : un dossier par page.
+            # Sans cette seconde recherche, aucune page de contenu n'est
+            # photographiée sur un site V2, et c'est exactement le trou que ce
+            # code avait été écrit pour boucher.
+            if not contenus:
+                contenus = sorted(dossier.glob("*/index.html"))
             if contenus:
                 echantillon.append(contenus[0])
 
@@ -77,7 +85,33 @@ class VisuelAgent(BaseAgent):
             self.logger.info(
                 f"{len(echantillon)} page(s) de collection ajoutée(s) aux captures"
             )
-        return echantillon
+            return echantillon
+
+        return self._echantillon_du_site()
+
+    # Pages qu'il ne sert à rien de photographier : elles n'ont pas de
+    # composition à juger.
+    _SANS_INTERET = ("mentions-legales", "404")
+
+    def _echantillon_du_site(self, maximum: int = 3) -> list:
+        """À défaut de collections déclarées, on regarde ce qui a été produit.
+
+        En V2, les collections sont déclarées dans site.config.ts par le crew,
+        pas dans le config.json du projet : `collections_declarees` ne trouve
+        alors rien, et seule la page d'accueil serait photographiée. On se
+        rabat donc sur le site tel qu'il existe sur le disque, qui est de toute
+        façon la source la plus fiable.
+        """
+        racine = self.project.output_dir
+        pages = sorted(
+            chemin for chemin in racine.rglob("index.html")
+            if chemin.parent != racine
+            and not any(mot in chemin.parent.name for mot in self._SANS_INTERET)
+        )[:maximum]
+
+        if pages:
+            self.logger.info(f"{len(pages)} page(s) échantillonnée(s) depuis output/")
+        return pages
 
     def _construire_blocs(self, images: list[dict], contexte: str) -> list:
         """Assemble le message mixte : consignes, puis chaque image légendée.

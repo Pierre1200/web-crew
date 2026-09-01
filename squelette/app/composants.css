@@ -5,5 +5,12 @@
  *  Ce fichier utilise les tokens de charte.css et ne redéfinit jamais ce que
  *  base.css a déjà posé.
  *
+ *  TOUT LE CONTENU VA DANS `@layer composants`. C'est ce qui garantit que
+ *  les correctifs de la boucle visuelle, eux hors couche, l'emportent
+ *  toujours. L'écriture est enveloppée automatiquement si tu l'oublies.
+ *
  *  Vide tant que le crew n'a rien produit. Un fichier vide est normal ici.
  * ===========================================================================*/
+
+@layer composants {
+}

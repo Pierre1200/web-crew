@@ -1,7 +1,10 @@
 /* =============================================================================
  *  LES CORRECTIFS : LE SEUL ENDROIT OÙ LA BOUCLE DE CORRECTION VISUELLE ÉCRIT.
  * =============================================================================
- *  Chargé en dernier : à spécificité égale, ce qui est ici gagne.
+ *  Chargé en dernier ET HORS COUCHE. Une règle hors couche bat toutes les
+ *  couches, quelle que soit leur spécificité : un simple `.hero {…}` écrit
+ *  ici l'emporte donc sur un `.section .hero {…}` de composants.css.
+ *  C'est ce qui rend la boucle de correction fiable sans `!important`.
  *
  *  Pourquoi un fichier à part plutôt que des retouches au milieu de la charte :
  *  une passe de correction reste relisible d'un coup d'oeil, et s'annule en

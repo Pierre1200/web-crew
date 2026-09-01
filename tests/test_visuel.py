@@ -134,3 +134,47 @@ def test_commentaire_correctif_ne_casse_pas_le_css(proj):
     css = (proj.output_dir / "style.css").read_text(encoding="utf-8")
     assert "display: none" not in css.split("*/")[0]
     assert css.count("/*") == css.count("*/")
+
+
+# ── L'ÉCHANTILLON DE PAGES SUR UN EXPORT NEXT ──────────────────────────
+
+def _site_next(proj):
+    """Un export statique Next : un dossier par page, trailingSlash oblige."""
+    for chemin in ("index.html", "blog/index.html", "blog/premier-billet/index.html",
+                   "blog/second-billet/index.html", "mentions-legales/index.html"):
+        cible = proj.output_dir / chemin
+        cible.parent.mkdir(parents=True, exist_ok=True)
+        cible.write_text("<html></html>", encoding="utf-8")
+
+
+def test_une_page_de_contenu_next_est_photographiee(proj):
+    """En V1 une page est « blog/article.html », en V2 « blog/article/index.html ».
+    Sans les deux recherches, aucune page de contenu n'est vue sur un site V2."""
+    from agents.visuel import VisuelAgent
+
+    _site_next(proj)
+    proj.config_path.write_text(
+        '{"site": {"collections": [{"id": "blog", "titre": "Blog", '
+        '"source": "blog", "url": "blog"}]}}',
+        encoding="utf-8",
+    )
+
+    pages = [p.relative_to(proj.output_dir).as_posix() for p in VisuelAgent(proj)._pages_secondaires()]
+
+    assert pages == ["blog/index.html", "blog/premier-billet/index.html"]
+
+
+def test_sans_collection_declaree_on_regarde_ce_qui_existe(proj):
+    """En V2 les collections sont déclarées dans site.config.ts, pas dans le
+    config.json : sans ce repli, seule l'accueil serait jugée."""
+    from agents.visuel import VisuelAgent
+
+    _site_next(proj)
+    proj.config_path.write_text('{"site": {}}', encoding="utf-8")
+
+    pages = [p.relative_to(proj.output_dir).as_posix() for p in VisuelAgent(proj)._pages_secondaires()]
+
+    assert "blog/index.html" in pages
+    assert "blog/premier-billet/index.html" in pages
+    # Une page d'obligation légale n'a pas de composition à juger.
+    assert "mentions-legales/index.html" not in pages

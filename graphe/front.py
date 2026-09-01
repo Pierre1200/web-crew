@@ -5,7 +5,7 @@ HTML écrit par un modèle : c'est un projet Next bâti par un compilateur.
 
     préparer → squelette → ingestion → orchestration → direction
              → ⏸ FEU VERT
-             → copywriter → charte → front
+             → copywriter → charte → polices → front
              → PORTE (lint, types, build) ──échec──> réparation ──┐
                   │                                              │
                   └──────────────────<───────────────────────────┘
@@ -61,6 +61,32 @@ def squelette(etat: EtatCrew) -> dict:
     return {"journal": [f"squelette : {len(rapport['ecrits'])} fichier(s), deps {'installées' if installe else 'déjà là'}"]}
 
 
+def orchestration_front(etat: EtatCrew) -> dict:
+    """L'orchestration de la V1, plus un avertissement propre au front.
+
+    Le prompt de l'orchestrateur connaît trois agents : copywriter, designer et
+    seo. Le graphe front n'en a qu'un, `copywriter` : le designer est remplacé
+    par la charte et le front, et le référencement est assuré par le squelette
+    lui-même (metadata, sitemap.ts, robots.ts).
+
+    L'instruction écrite POUR le designer n'est pas perdue pour autant : c'est
+    elle que `cahier_des_charges()` transmet au front. Mais lire
+    « designer, seo » dans le journal sans les voir tourner ferait croire à un
+    nœud sauté par erreur. On le dit une fois, ici.
+    """
+    resultat = noeuds.orchestration(etat)
+
+    sans_noeud = [a for a in resultat.get("agents_planifies", [])
+                  if a not in ("copywriter",)]
+    if sans_noeud:
+        typer.echo(
+            f"   ℹ️  {sans_noeud} n'ont pas de nœud dans le graphe front. "
+            "Leur travail est fait par la charte, le front et le squelette."
+        )
+
+    return resultat
+
+
 def charte(etat: EtatCrew) -> dict:
     """La direction artistique traduite en valeurs de tokens."""
     from agents.front import CharteAgent
@@ -73,6 +99,43 @@ def charte(etat: EtatCrew) -> dict:
         "depenses": facture["lignes"],
         "journal": [f"charte : {len(resultat['tokens'])} token(s)"],
     }
+
+
+def polices(etat: EtatCrew) -> dict:
+    """Télécharge les polices nommées par la charte. Zéro token.
+
+    SANS CE NŒUD, LE SITE PERD SA TYPOGRAPHIE EN SILENCE. L'enveloppe du
+    squelette charge /polices/polices.css sans condition, et la charte nomme
+    des familles : si personne ne produit le fichier, le navigateur reçoit un
+    404 que seule la console montre, et retombe sur la police de secours. Le
+    build est vert, la porte est verte, et le site n'a pas la typographie qu'on
+    a payée.
+
+    Les polices sont servies depuis le domaine du site, jamais depuis Google,
+    qui recevrait sinon l'adresse IP de chaque visiteur.
+    """
+    from utils.polices import PolicesIndisponibles, heberger_polices_next
+
+    proj = noeuds._projet(etat)
+    try:
+        rapport = heberger_polices_next(proj.site_dir)
+    except PolicesIndisponibles as e:
+        # On continue : tout le reste du site est bon, et la panne est
+        # réseau, donc passagère. Mais on le dit fort, et ça reste dans le
+        # journal du run, parce qu'une typographie muette ne se voit pas.
+        typer.echo(f"\n⚠️  Polices non hébergées : {e}")
+        typer.echo("   Le site utilisera les polices de secours. Relancer avec --reprendre.")
+        return {"journal": ["polices : ÉCHEC, polices de secours"]}
+
+    if rapport["familles"]:
+        typer.echo(
+            f"🔤 Polices hébergées : {', '.join(rapport['familles'])} "
+            f"({rapport['telecharges']} fichier(s) téléchargé(s))"
+        )
+    else:
+        typer.echo("🔤 Aucune police à héberger : la charte n'utilise que des familles système")
+
+    return {"journal": [f"polices : {len(rapport['familles'])} famille(s)"]}
 
 
 def front(etat: EtatCrew) -> dict:
@@ -240,11 +303,12 @@ def construire() -> StateGraph:
         ("preparer", noeuds.preparer),
         ("squelette", squelette),
         ("ingestion", noeuds.ingestion),
-        ("orchestration", noeuds.orchestration),
+        ("orchestration", orchestration_front),
         ("direction", noeuds.direction),
         ("feu_vert", noeuds.feu_vert),
         ("copywriter", noeuds.copywriter),
         ("charte", charte),
+        ("polices", polices),
         ("front", front),
         ("porte", porte),
         ("reparation_front", reparation_front),
@@ -268,11 +332,16 @@ def construire() -> StateGraph:
     for depart, suivant in (
         ("feu_vert", "copywriter"),
         ("copywriter", "charte"),
-        ("charte", "front"),
+        ("polices", "front"),
     ):
         g.add_conditional_edges(
             depart, _porte(suivant), {suivant: suivant, "plafond": "plafond", "fin": "fin"}
         )
+
+    # Les polices sont gratuites et dépendent de la charte : arête simple, même
+    # si le budget est consommé. Un site sans sa typographie n'est pas un site
+    # moins cher, c'est un site raté.
+    g.add_edge("charte", "polices")
 
     # La porte est gratuite : elle se franchit même si le budget est consommé.
     # Savoir si le site compile ne coûte rien, et l'ignorer coûterait cher.

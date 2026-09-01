@@ -194,3 +194,33 @@ def test_un_constat_ne_peut_pas_fermer_son_commentaire(tmp_path):
     # est inoffensif, les commentaires CSS ne s'imbriquent pas.
     assert constat.startswith("/*") and constat.endswith("*/")
     assert "*/" not in constat[2:-2]
+
+
+# ── LA COUCHE CSS ──────────────────────────────────────────────────────
+
+def test_les_composants_sont_ranges_dans_leur_couche():
+    """Toute la boucle de correction visuelle en dépend : les correctifs sont
+    hors couche, donc ils battent n'importe quelle couche quelle que soit sa
+    spécificité. Une feuille de composants laissée hors couche briserait cette
+    garantie en silence."""
+    from agents.front import enrober_couche
+
+    enrobe = enrober_couche("app/composants.css", ".hero { color: red; }")
+
+    assert enrobe.startswith("/*")
+    assert "@layer composants {" in enrobe
+    assert enrobe.rstrip().endswith("}")
+
+
+def test_une_feuille_deja_en_couche_nest_pas_enrobee_deux_fois():
+    from agents.front import enrober_couche
+
+    deja = "@layer composants {\n  .hero { color: red; }\n}\n"
+    assert enrober_couche("app/composants.css", deja) == deja
+
+
+def test_les_autres_fichiers_ne_sont_pas_touches():
+    from agents.front import enrober_couche
+
+    tsx = "export default function Page() { return null; }\n"
+    assert enrober_couche("app/page.tsx", tsx) == tsx

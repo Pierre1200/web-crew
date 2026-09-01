@@ -10,6 +10,18 @@ import pytest
 import utils.project as project_mod
 
 
+@pytest.fixture(autouse=True)
+def projets_jetables(tmp_path, monkeypatch):
+    """Aucun test n'écrit jamais dans le VRAI dossier projects/.
+
+    Posée sur TOUS les tests, et pas seulement sur ceux qui demandent la
+    fixture `proj` : il suffit qu'un test construise un Project quelque part au
+    fond d'un graphe pour qu'un dossier apparaisse dans projects/. C'est arrivé.
+    Un filet coûte une ligne, le nettoyage à la main coûte à chaque fois.
+    """
+    monkeypatch.setattr(project_mod, "_PROJECTS_DIR", tmp_path / "projets")
+
+
 @pytest.fixture
 def proj(tmp_path, monkeypatch):
     """Projet jetable dans un dossier temporaire.

@@ -9,6 +9,8 @@
  *  Les valeurs ci-dessous sont un gris lisible et neutre : un site livré tel
  *  quel est terne, jamais illisible.
  * ===========================================================================*/
+
+@layer charte {
 :root {
   /* --- Les fonds --------------------------------------------------------- */
   --fond:        #ffffff;  /* LE fond, du haut de la page jusqu'en bas */
@@ -56,4 +58,5 @@
 
   /* Démarre vite, freine longuement : le mouvement d'un objet qui se pose. */
   --ease-douce: cubic-bezier(0.16, 1, 0.3, 1);
+}
 }

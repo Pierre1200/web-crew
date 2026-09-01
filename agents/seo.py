@@ -32,6 +32,11 @@ def generer_sitemap(project) -> int:
         for p in output_dir.rglob("*.html")
     )
 
+    # Lu UNE fois : la boucle d'origine rouvrait et réanalysait config.json à
+    # chaque page. Sur un blog de trente articles, trente lectures de fichier
+    # pour une valeur qui ne change pas.
+    url = (project.load_config().get("site", {}) or {}).get("url", "").rstrip("/")
+
     entrees = []
     for page in pages:
         if page == "index.html":
@@ -40,7 +45,6 @@ def generer_sitemap(project) -> int:
             priorite, frequence = "0.8", "weekly"
         else:
             priorite, frequence = "0.6", "yearly"
-        url = (project.load_config().get("site", {}) or {}).get("url", "").rstrip("/")
         entrees.append(
             "  <url>\n"
             f"    <loc>{url}/{page}</loc>\n"

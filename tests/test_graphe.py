@@ -16,7 +16,6 @@ propres tests.
 """
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 
 from agents.base_agent import BaseAgent
@@ -304,3 +303,33 @@ def test_la_boucle_de_reparation_sarrete_au_nombre_de_tentatives(monkeypatch):
 
     assert etat["corrections_faites"] == 2
     assert etat["journal"].count("reparation") == 2
+
+
+# ── LE CONTRAT DE L'ÉTAT ───────────────────────────────────────────────
+
+def test_toute_cle_ecrite_par_un_noeud_est_declaree():
+    """LangGraph JETTE EN SILENCE une clé absente du schéma.
+
+    Le nœud croit avoir écrit, le suivant lit une clé absente, et l'aiguillage
+    part du mauvais côté sans qu'aucune erreur ne soit levée. C'est arrivé avec
+    `resultat_porte` : le graphe front bouclait en réparation sans jamais
+    publier. Ce test relit les nœuds et compare.
+    """
+    import ast
+    from pathlib import Path
+
+    declarees = set(EtatCrew.__annotations__)
+    racine = Path(__file__).resolve().parent.parent
+    manquantes = {}
+
+    for fichier in ("graphe/noeuds.py", "graphe/front.py"):
+        arbre = ast.parse((racine / fichier).read_text(encoding="utf-8"))
+        for noeud in ast.walk(arbre):
+            if not (isinstance(noeud, ast.Return) and isinstance(noeud.value, ast.Dict)):
+                continue
+            for cle in noeud.value.keys:
+                if isinstance(cle, ast.Constant) and isinstance(cle.value, str):
+                    if cle.value not in declarees:
+                        manquantes.setdefault(fichier, set()).add(cle.value)
+
+    assert manquantes == {}, f"clés non déclarées dans EtatCrew : {manquantes}"

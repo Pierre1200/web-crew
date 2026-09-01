@@ -200,3 +200,142 @@ def heberger_polices(project, sous_ensembles: tuple = SOUS_ENSEMBLES_PAR_DEFAUT)
         "pages_modifiees": pages_modifiees,
         "familles": sorted(familles),
     }
+
+
+# ── LES POLICES DU SQUELETTE NEXT ──────────────────────────────────────
+#
+# La fonction ci-dessus travaille sur du HTML : elle cherche les <link> vers
+# Google dans output/ et les remplace. Le squelette Next n'en contient aucun,
+# par construction : il charge /polices/polices.css, un fichier que personne ne
+# produisait. Résultat, avant cette fonction : un 404 silencieux, et une charte
+# qui nomme des familles jamais chargées. Le site se construit, passe la porte,
+# et perd sa typographie sans qu'aucun outil ne s'en aperçoive.
+
+# Familles qu'on ne télécharge pas : elles sont déjà sur la machine du
+# visiteur, ou ce sont des mots-clés CSS.
+FAMILLES_SYSTEME = {
+    "serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui",
+    "ui-serif", "ui-sans-serif", "ui-monospace", "-apple-system",
+    "blinkmacsystemfont", "segoe ui", "georgia", "times new roman", "times",
+    "arial", "helvetica", "helvetica neue", "courier new", "verdana", "tahoma",
+    "roboto", "inherit", "initial", "unset",
+}
+
+# Plage de graisses demandée à Google. Une police variable arrive en un seul
+# fichier par sous-ensemble quelle que soit la plage : demander large ne coûte
+# donc rien de plus, et évite de découvrir qu'un titre en 800 n'existe pas.
+_PLAGE_GRAISSES = "wght@300..900"
+
+
+def familles_de_la_charte(site_dir) -> list[str]:
+    """Les familles nommées par les tokens de la charte, à télécharger.
+
+    On lit LA CHARTE et non le plan : c'est elle qui décide ce que le CSS
+    demandera vraiment. Télécharger d'après le plan, c'est risquer de livrer
+    des fichiers que personne n'utilise et d'en oublier un que tout le monde
+    attend.
+    """
+    from pathlib import Path
+
+    charte = Path(site_dir) / "app" / "charte.css"
+    if not charte.is_file():
+        return []
+
+    familles = []
+    for valeur in re.findall(r"^\s*--police-[\w-]+:\s*([^;]+);", charte.read_text(encoding="utf-8"), re.MULTILINE):
+        # La première famille de la pile est celle qu'on veut ; les suivantes
+        # sont le repli, qui doit rester local.
+        premiere = valeur.split(",")[0].strip().strip("\"'")
+        if premiere and premiere.lower() not in FAMILLES_SYSTEME and premiere not in familles:
+            familles.append(premiere)
+
+    return familles
+
+
+def url_google(familles: list[str]) -> str:
+    """L'adresse de la feuille Google pour ces familles."""
+    parties = "&".join(
+        f"family={famille.replace(' ', '+')}:{_PLAGE_GRAISSES}" for famille in familles
+    )
+    return f"https://fonts.googleapis.com/css2?{parties}&display=swap"
+
+
+def assembler_polices_css(blocs: list[dict], prefixe_url: str = "/polices") -> tuple[str, list[str]]:
+    """La feuille locale, et la liste des fichiers à écrire à côté.
+
+    Séparée du téléchargement pour rester testable hors ligne : c'est ici que
+    se joue la justesse du résultat, pas dans l'accès réseau.
+    """
+    morceaux = [
+        "/* =============================================================",
+        " *  LES POLICES, HÉBERGÉES ICI",
+        " * =============================================================",
+        " *  Engendré par utils/polices.py. Ne pas modifier à la main.",
+        " *",
+        " *  Elles ne viennent pas de Google : charger une police depuis",
+        " *  fonts.googleapis.com transmet l'adresse IP de chaque visiteur à un",
+        " *  tiers, sans consentement. C'est aussi une dépendance de moins et",
+        " *  deux connexions réseau en moins au chargement.",
+        " *",
+        " *  `unicode-range` rend le découpage gratuit : le navigateur ne",
+        " *  télécharge « latin-ext » que s'il croise un caractère qui s'y trouve.",
+        " * ===========================================================*/",
+        "",
+    ]
+    fichiers = []
+
+    for bloc in blocs:
+        nom = nom_fichier_police(bloc)
+        fichiers.append(nom)
+        morceaux.append(f"/* {bloc['famille']} — {bloc['sous_ensemble']} */")
+        morceaux.append(reecrire_bloc(bloc, f"{prefixe_url}/{nom}"))
+        morceaux.append("")
+
+    return "\n".join(morceaux), fichiers
+
+
+def heberger_polices_next(site_dir, sous_ensembles: tuple = SOUS_ENSEMBLES_PAR_DEFAUT) -> dict:
+    """Télécharge les polices de la charte dans public/polices/. Zéro token.
+
+    ÉCRIT TOUJOURS polices.css, même vide. L'enveloppe du squelette le charge
+    sans condition : un fichier absent donnerait un 404 à chaque page, visible
+    seulement dans la console du navigateur.
+
+    Idempotent : un fichier déjà présent n'est pas retéléchargé.
+    """
+    from pathlib import Path
+
+    site_dir = Path(site_dir)
+    dossier = site_dir / "public" / "polices"
+    dossier.mkdir(parents=True, exist_ok=True)
+
+    familles = familles_de_la_charte(site_dir)
+    if not familles:
+        (dossier / "polices.css").write_text(
+            "/* Aucune police à héberger : la charte n'utilise que des familles\n"
+            "   déjà présentes sur la machine du visiteur. */\n",
+            encoding="utf-8",
+        )
+        return {"familles": [], "fichiers": [], "telecharges": 0}
+
+    css_google = _telecharger(url_google(familles)).decode("utf-8", errors="ignore")
+    blocs = analyser_css_google(css_google, sous_ensembles)
+
+    if not blocs:
+        raise PolicesIndisponibles(
+            f"Google n'a renvoyé aucune police exploitable pour {familles}. "
+            "Vérifie l'orthographe exacte des familles dans app/charte.css : "
+            "une famille inconnue de Google renvoie une feuille vide."
+        )
+
+    feuille, fichiers = assembler_polices_css(blocs)
+    telecharges = 0
+    for bloc, nom in zip(blocs, fichiers):
+        cible = dossier / nom
+        if not cible.exists():
+            cible.write_bytes(_telecharger(bloc["url"]))
+            telecharges += 1
+
+    (dossier / "polices.css").write_text(feuille, encoding="utf-8")
+
+    return {"familles": familles, "fichiers": fichiers, "telecharges": telecharges}

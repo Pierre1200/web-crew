@@ -42,6 +42,10 @@ _FERMETURE = "=== FIN ==="
 # défait le squelette, et le squelette est ce qui rend le résultat prévisible.
 PREFIXES_AUTORISES = ("lib/", "composants/", "app/", "contenu/", "public/assets/")
 FICHIERS_INTERDITS = {
+    # La charte est écrite par CharteAgent, qui passe juste avant : la laisser
+    # ouverte, c'est laisser le front effacer la palette qu'on vient de payer.
+    # Les correctifs appartiennent à la boucle visuelle, et à elle seule.
+    "app/charte.css", "app/correctifs.css",
     "app/base.css", "app/layout.tsx", "app/error.tsx", "app/not-found.tsx",
     "app/robots.ts", "app/sitemap.ts", "app/flux.xml/route.ts",
     "app/mentions-legales/page.tsx", "lib/site.ts", "lib/contenu.ts",
@@ -105,6 +109,30 @@ def decouper_fichiers(reponse: str) -> dict[str, str]:
     return fichiers
 
 
+def enrober_couche(relatif: str, contenu: str) -> str:
+    """Range composants.css dans sa couche, même si le modèle l'a oublié.
+
+    Toute la boucle de correction visuelle repose là-dessus : les correctifs
+    sont HORS couche, donc ils battent n'importe quelle règle de n'importe
+    quelle couche, quelle que soit sa spécificité. Une feuille de composants
+    laissée hors couche briserait cette garantie en silence, et un correctif
+    `.hero {...}` serait battu par un `.section .hero {...}` sans que rien ne
+    le signale.
+
+    On ne demande donc pas au modèle d'y penser : on l'enveloppe.
+    """
+    if relatif != "app/composants.css" or "@layer" in contenu:
+        return contenu
+
+    corps = "\n".join(f"  {ligne}" if ligne.strip() else ligne
+                      for ligne in contenu.rstrip("\n").splitlines())
+    return (
+        "/* Enveloppé dans sa couche par le crew : les correctifs visuels, hors\n"
+        "   couche, doivent pouvoir l'emporter sans `!important`. */\n"
+        f"@layer composants {{\n{corps}\n}}\n"
+    )
+
+
 def ecrire_fichiers(site_dir: Path, fichiers: dict[str, str]) -> tuple[list[str], list[str]]:
     """Écrit ce qui est autorisé, renvoie (écrits, refusés)."""
     ecrits, refuses = [], []
@@ -118,7 +146,7 @@ def ecrire_fichiers(site_dir: Path, fichiers: dict[str, str]) -> tuple[list[str]
 
         cible = Path(site_dir) / sur
         cible.parent.mkdir(parents=True, exist_ok=True)
-        cible.write_text(contenu, encoding="utf-8")
+        cible.write_text(enrober_couche(sur, contenu), encoding="utf-8")
         ecrits.append(sur)
 
     return ecrits, refuses
@@ -294,7 +322,7 @@ CE QUE TU AS LE DROIT D'ÉCRIRE, et rien d'autre :
 - contenu/<collection>/*.json (les données)
 - composants/*.tsx que tu crées
 - app/page.tsx et app/<segment>/page.tsx
-- app/composants.css
+- app/composants.css (son contenu est rangé dans `@layer composants`)
 
 Toute tentative d'écrire ailleurs sera refusée avant écriture. En particulier
 tu ne touches NI à app/base.css, NI à app/layout.tsx, NI à next.config.ts.

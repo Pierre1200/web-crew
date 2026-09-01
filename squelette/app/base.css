@@ -6,6 +6,19 @@
  *  l'accessibilité et des garde-fous.
  * ===========================================================================*/
 
+/* L'ORDRE DES COUCHES DE TOUT LE SITE, déclaré ici parce que base.css est la
+   PREMIÈRE feuille importée par le layout. L'ordre des couches est fixé par
+   leur première apparition : le déclarer ailleurs le laisserait dépendre de
+   l'ordre des imports, ce qui est exactement ce qu'on veut éviter.
+
+   Une règle d'une couche tardive bat une règle d'une couche antérieure QUELLE
+   QUE SOIT SA SPÉCIFICITÉ. Et app/correctifs.css n'appartient à AUCUNE couche :
+   une règle hors couche bat toutes les couches, toujours. C'est ce qui rend la
+   boucle de correction visuelle fiable sans un seul `!important`. */
+@layer charte, base, composants;
+
+@layer base {
+
 *, *::before, *::after { box-sizing: border-box; }
 
 html {
@@ -225,4 +238,5 @@ a:hover { color: var(--encre); }
   body { background: #fff; color: #000; font-size: 11pt; }
   /* Une adresse imprimée qui ne dit pas où elle mène ne sert à rien. */
   a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 9pt; }
+}
 }

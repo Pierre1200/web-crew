@@ -27,12 +27,6 @@ import re
 import subprocess
 from pathlib import Path
 
-# Types de problèmes que la réparation automatique sait traiter. Les trois y
-# sont : un modèle qui reçoit une erreur de compilateur et le fichier fautif a
-# tout ce qu'il faut pour corriger. C'est l'inverse de la V1, où seuls quelques
-# défauts structurels étaient réparables.
-TYPES_REPARABLES = {"lint", "type", "build"}
-
 # Au-delà, c'est que quelque chose est bloqué (un serveur lancé, une invite
 # interactive). Mieux vaut échouer avec un message qu'attendre indéfiniment.
 DELAI_MAX_S = 900
