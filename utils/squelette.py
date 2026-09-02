@@ -15,6 +15,7 @@ génération sans casser les outils qui vivent autour.
 """
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -156,3 +157,89 @@ def publier(project) -> int:
     shutil.copytree(sortie, project.output_dir)
 
     return sum(1 for chemin in project.output_dir.rglob("*") if chemin.is_file())
+
+
+# ── L'INVENTAIRE DE CE QUE LE SQUELETTE OFFRE DÉJÀ ─────────────────────
+#
+# Un prompt qui se contente de lister des chemins de fichiers laisse le modèle
+# deviner ce qu'ils contiennent. Il réécrit alors ce qui existe : un second
+# composant de cadre en pointillés, un en-tête dans la page alors que
+# l'enveloppe en pose déjà un, sa propre fonction de date. Rien de tout cela
+# n'échoue à la construction, et tout est à reprendre à la main.
+#
+# On extrait donc les exports RÉELS du squelette installé, avec la première
+# ligne de leur commentaire. Comme pour la documentation de Next : le prompt
+# décrit ce qui est là, pas ce dont on se souvient.
+
+_EXPORT = re.compile(
+    r"^export\s+(?:default\s+)?(?:async\s+)?(?:function|const|type)\s+([A-Za-z_]\w*)",
+    re.MULTILINE,
+)
+
+# Dossiers dont l'API intéresse le générateur. `app/` en est absent : ses
+# fichiers sont des routes, pas une bibliothèque à réutiliser.
+DOSSIERS_API = ("composants", "lib")
+
+
+def _resume_avant(source: str, position: int) -> str:
+    """La première ligne utile du commentaire qui précède un export.
+
+    On remonte au dernier « */ » avant la déclaration : c'est le commentaire
+    qui la documente. Sans commentaire juste avant, on ne renvoie rien plutôt
+    que d'aller chercher celui d'un voisin, qui décrirait autre chose.
+    """
+    fin = source.rfind("*/", 0, position)
+    if fin == -1 or source[fin:position].strip("*/ \n\t"):
+        return ""
+
+    debut = source.rfind("/*", 0, fin)
+    if debut == -1:
+        return ""
+
+    for ligne in source[debut:fin].splitlines():
+        propre = ligne.strip().lstrip("/*").strip()
+        if propre and not propre.startswith("@"):
+            return propre.rstrip(".")
+    return ""
+
+
+def inventaire_api(site_dir) -> str:
+    """Ce que le squelette expose, fichier par fichier, prêt pour un prompt."""
+    racine = Path(site_dir)
+    lignes = []
+
+    for dossier in DOSSIERS_API:
+        for chemin in sorted((racine / dossier).rglob("*.ts*")):
+            source = chemin.read_text(encoding="utf-8")
+            exports = [(m.group(1), m.start()) for m in _EXPORT.finditer(source)]
+            if not exports:
+                continue
+
+            lignes.append(f"  {chemin.relative_to(racine)}")
+            for nom, position in exports:
+                resume = _resume_avant(source, position)
+                lignes.append(f"      {nom}{f'  ({resume})' if resume else ''}")
+
+    return "\n".join(lignes)
+
+
+def classes_du_squelette(site_dir) -> list[str]:
+    """Les classes CSS que base.css habille déjà.
+
+    Sans cette liste, le modèle fait l'une des deux erreurs, et souvent les
+    deux : il réécrit un `.btn` qui existe, ou il invente un `.carte-service`
+    qu'aucune feuille ne définit. Le premier cas donne deux boutons qui ne se
+    ressemblent pas, le second un bloc sans style. Aucun des deux ne fait
+    échouer la construction.
+    """
+    from utils.cleaners import extract_css_classes
+
+    base = Path(site_dir) / "app" / "base.css"
+    if not base.is_file():
+        return []
+
+    # Les commentaires d'abord : sans ça, « app/base.css » et « page.tsx »
+    # écrits dans une explication ressortent comme des classes « css » et
+    # « tsx », et le modèle croit qu'elles existent.
+    sans_commentaires = re.sub(r"/\*.*?\*/", " ", base.read_text(encoding="utf-8"), flags=re.DOTALL)
+    return sorted(set(extract_css_classes(sans_commentaires)))

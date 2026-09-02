@@ -30,6 +30,8 @@ import typer
 from agents.base_agent import BaseAgent
 from utils.cleaners import compact_json
 from utils.docs_next import digest
+from utils.pages import collections_declarees
+from utils.squelette import classes_du_squelette, inventaire_api
 from utils.project import Project
 
 # ── LE TRANSPORT DES FICHIERS ──────────────────────────────────────────
@@ -203,25 +205,48 @@ class CharteAgent(BaseAgent):
     def _prompt_systeme(self) -> str:
         return """Tu traduis une direction artistique en valeurs de tokens CSS.
 
-Tu ne produis PAS de CSS. Tu produis un objet JSON dont les clés sont des noms
-de tokens et les valeurs des valeurs CSS simples. Python les posera lui-même
-dans la feuille de style : tu ne peux donc rien casser, et tu n'as aucune
-syntaxe à respecter au-delà de la valeur elle-même.
+TU NE PRODUIS PAS DE CSS. Tu produis un objet JSON dont les clés sont des noms
+de tokens et les valeurs des valeurs CSS. Python les pose lui-même dans la
+feuille : tu ne peux donc rien casser, et tu n'as aucune syntaxe à respecter
+au-delà de la valeur elle-même.
 
 Réponds UNIQUEMENT en JSON valide, sans texte avant ou après, sans balises.
 
-Règles absolues :
-- contrastes WCAG AA : 4,5:1 pour le texte courant, 3:1 pour les grands titres.
-  Les tokens « -encre » sont les variantes FONCÉES, seules utilisées en petit.
-- deux accents et pas trois : --action (liens, boutons) et --repere (dates,
-  états). Ils ne se touchent jamais dans un même bloc.
-- les familles de polices se terminent TOUJOURS par une famille générique de
-  secours (serif, sans-serif) et sont écrites entre guillemets si le nom
-  contient une espace.
-- aucune valeur ne contient « ; », « } », ni « url( » : elles seraient refusées.
+COMMENT LES TOKENS S'EMPLOIENT. Le contraste se juge sur ces paires, et sur
+elles seules :
 
-N'invente aucun nom de token : ceux qui te sont donnés sont les seuls qui
-existent. Tu peux n'en renvoyer qu'une partie."""
+  --encre        sur --fond        texte courant, minimum 4,5:1
+  --encre-douce  sur --fond        texte secondaire, minimum 4,5:1
+  --action-encre sur --fond        liens et libellés, minimum 4,5:1
+  --repere-encre sur --fond        dates et états, minimum 4,5:1
+  --fond         sur --action-encre texte des boutons pleins, minimum 4,5:1
+  --encre        sur --fond-pose   texte dans les encadrés, minimum 4,5:1
+
+Les tokens sans suffixe (--action, --repere) servent aux aplats, aux bordures
+et aux traits, jamais à du texte. Les variantes « -encre » sont les seules
+autorisées en petit corps.
+
+RÈGLES ABSOLUES
+- deux accents, pas trois : --action porte l'action (liens, boutons),
+  --repere porte le temps (dates, états). Ils ne se touchent jamais dans un
+  même bloc.
+- oklch() et color-mix(in oklab, ...) sont acceptés et préférables : ils
+  donnent un système tonal cohérent plutôt qu'une liste de couleurs sans lien.
+- une famille de police se termine TOUJOURS par une famille générique de
+  secours, et s'écrit entre guillemets si son nom contient une espace. Le nom
+  doit être l'orthographe EXACTE d'une police Google : elle sera téléchargée
+  telle quelle, et un nom inconnu ne donne aucun fichier.
+- aucune valeur ne contient « ; », « } » ni « url( » : elles seraient refusées
+  avant d'être posées.
+
+N'invente aucun nom de token : ceux qu'on te donne sont les seuls qui existent.
+Tu peux n'en renseigner qu'une partie ; ce que tu omets garde sa valeur par
+défaut, qui est lisible mais terne.
+
+Forme de la réponse :
+
+{"fond": "oklch(0.97 0.01 85)", "encre": "oklch(0.22 0.02 60)",
+ "action": "oklch(0.55 0.14 30)", "police-titre": "\"Fraunces\", Georgia, serif"}"""
 
     def run(self, context: dict) -> dict:
         charte = Path(self.project.site_dir) / "app" / "charte.css"
@@ -234,16 +259,18 @@ existent. Tu peux n'en renvoyer qu'une partie."""
             direction = {}
 
         plan = context.get("plan", {})
-        message = f"""Direction artistique retenue :
+        message = f"""Direction artistique retenue pour ce projet :
 {compact_json(direction)}
 
-Guide de style du plan :
+Cadrage du chef de projet :
 {compact_json(plan.get("style_guide", {}))}
 
-Tokens existants, les seuls que tu peux renseigner :
+Les tokens existants, les seuls que tu peux renseigner :
 {", ".join(sorted(set(noms)))}
 
-Renvoie le JSON des valeurs."""
+Traduis cette direction en valeurs. Si elle nomme des couleurs en oklch ou des
+dérivations en color-mix, reprends-les telles quelles plutôt que de les
+reconvertir."""
 
         reponse = self.call_claude(self._prompt_systeme(), message, max_tokens=4000)
         tokens = self.parse_json_response(reponse)
@@ -288,73 +315,148 @@ class FrontAgent(BaseAgent):
                 morceaux.append(f"--- {fichier} ---\n{chemin.read_text(encoding='utf-8')}")
         return "\n\n".join(morceaux)
 
-    def _arborescence(self) -> str:
-        """Ce que le squelette contient déjà, pour ne pas le réécrire."""
-        racine = Path(self.project.site_dir)
-        fichiers = sorted(
-            str(c.relative_to(racine))
-            for c in racine.rglob("*")
-            if c.is_file()
-            and not any(p in {"node_modules", ".next", "out"} for p in c.relative_to(racine).parts)
-        )
-        return "\n".join(f"  {f}" for f in fichiers)
-
     def _prompt_systeme(self) -> str:
+        """Tout ce qui ne dépend pas du brief.
+
+        La séparation n'est pas cosmétique : ce bloc est identique d'un appel à
+        l'autre pour un même projet, donc il se met en cache côté API. Le brief
+        et les textes, eux, changent, et vivent dans le message.
+        """
+        site = Path(self.project.site_dir)
+
         return f"""Tu écris le front d'un site vitrine, en Next.js App Router, React et
 TypeScript, en EXPORT STATIQUE. Tu pars d'un squelette déjà validé et tu ne
-produis que les variations.
+produis que les variations : le modèle de contenu, la couture de lecture, les
+composants, les pages et leur habillage.
 
-{digest(Path(self.project.site_dir))}
+Trois portes automatiques jugeront ton travail sans indulgence : ESLint,
+TypeScript et `next build`. Ce qui ne passe pas les trois n'est jamais publié.
 
-FORMAT DE RÉPONSE. Un fichier par bloc, exactement ainsi :
+{digest(site)}
 
-=== FICHIER: lib/types.ts ===
-export type Realisation = {{ ... }};
-=== FIN ===
+CE QUE LE SQUELETTE OFFRE DÉJÀ. Tu l'importes, tu ne le réécris pas :
+{inventaire_api(site)}
 
-Aucun texte hors des blocs. Pas de balises markdown, pas de ```. Le contenu du
-bloc est le fichier, tel quel, en entier. N'abrège JAMAIS avec « ... » ou
-« le reste est inchangé » : ce que tu n'écris pas n'existe pas.
+L'enveloppe pose DÉJÀ le lien d'évitement, l'en-tête, le menu, la zone de
+contenu et le pied de page. Une page ne les réécrit jamais : elle rend le
+contenu, et rien d'autre. Écrire un second <header> dans une page produit deux
+en-têtes, et aucune porte ne le signale.
+
+CLASSES CSS DÉJÀ HABILLÉES par app/base.css, à réutiliser telles quelles :
+{", ".join(classes_du_squelette(site))}
+
+Toute autre classe que tu emploies, tu la définis toi-même dans
+app/composants.css. Une classe employée et jamais définie donne un bloc sans
+style : la construction passe, et le défaut ne se voit qu'à l'oeil.
 
 CE QUE TU AS LE DROIT D'ÉCRIRE, et rien d'autre :
-- site.config.ts (les valeurs du site : nom, menu, mentions, formulaire)
+- site.config.ts (nom, menu, mentions, motifs du formulaire, collections)
 - lib/types.ts et lib/data/*.ts (le modèle de contenu et la couture)
 - contenu/<collection>/*.json (les données)
 - composants/*.tsx que tu crées
 - app/page.tsx et app/<segment>/page.tsx
 - app/composants.css (son contenu est rangé dans `@layer composants`)
 
-Toute tentative d'écrire ailleurs sera refusée avant écriture. En particulier
-tu ne touches NI à app/base.css, NI à app/layout.tsx, NI à next.config.ts.
+Toute tentative d'écrire ailleurs est refusée avant écriture. En particulier tu
+ne touches NI à app/base.css, NI à app/charte.css, NI à app/layout.tsx, NI à
+next.config.ts.
 
-LA RÈGLE MÈRE : aucune donnée en dur dans le balisage. Une page appelle une
-fonction de lib/data/, jamais un fichier directement. Les contraintes de
-couture qui suivent ne sont pas des conseils, elles sont le produit."""
+ÉCRIS LES FICHIERS DANS CET ORDRE, parce que chacun dépend du précédent :
+  1. lib/types.ts                  le contrat
+  2. contenu/<collection>/*.json   les données, à la forme du contrat
+  3. lib/data/*.ts                 la lecture : async, filtre et trie
+  4. composants/*.tsx              ce que plusieurs pages partagent
+  5. app/**/page.tsx               les pages, qui n'appellent que lib/data
+  6. site.config.ts                les valeurs du site
+  7. app/composants.css            l'habillage
+
+QUATRE RÈGLES QUE LE CONTRAT NE DIT PAS, ET QUI CASSENT EN SILENCE
+- Une page est un Server Component `async`. « use client » seulement pour un
+  composant qui a besoin d'un état ou d'un écouteur d'événement.
+- Aucun état déduit d'une date n'est calculé dans une page. `<Etat debut={{...}} fin={{...}} />` le recalcule chez le visiteur. Calculé au rendu, il serait figé
+  au jour de la construction : le site annoncerait « en cours » des mois après.
+- Une image qui n'existe pas encore ne se remplace pas par du texte.
+  `<Cadre format="4x3" legende="..." />` tient exactement sa place, et sa
+  légende dit ce qu'il faudra photographier.
+- Champ absent = `null`, jamais `undefined` ni chaîne vide.
+- Aucun tiret cadratin dans les textes que tu écris. C'est une règle de maison,
+  elle vaut pour tout ce qui sera lu par un visiteur. Une virgule, un
+  deux-points ou une parenthèse font le travail.
+
+FORMAT DE RÉPONSE. Un fichier par bloc, exactement ainsi :
+
+=== FICHIER: lib/types.ts ===
+export type Realisation = {{
+  id: string;
+  slug: string;
+  titre: string;
+  chapo: string | null;
+  en_ligne: boolean;
+  cree_le: string;
+  modifie_le: string;
+}};
+=== FIN ===
+
+=== FICHIER: contenu/realisations/01-exemple.json ===
+{{
+  "id": "01-exemple",
+  "slug": "un-titre-lisible",
+  "titre": "Un titre lisible",
+  "chapo": null,
+  "en_ligne": true,
+  "cree_le": "2026-03-12T00:00:00Z",
+  "modifie_le": "2026-03-12T00:00:00Z"
+}}
+=== FIN ===
+
+Aucun texte hors des blocs. Pas de balises markdown, pas de ```. Le contenu du
+bloc est le fichier, tel quel, en entier. N'abrège JAMAIS avec « ... » ou « le
+reste est inchangé » : ce que tu n'écris pas n'existe pas, et un fichier sans
+marqueur de fin est jeté.
+
+AVANT DE RÉPONDRE, VÉRIFIE CES SIX POINTS
+  1. aucune page n'appelle `lireCollection` ni un chemin de fichier : elles
+     passent toutes par une fonction de lib/data ;
+  2. chaque type porte slug, en_ligne, cree_le, modifie_le, et des dates ISO ;
+  3. chaque classe employée est dans la liste ci-dessus, ou définie par toi
+     dans app/composants.css ;
+  4. aucune section du cahier des charges ne manque, et aucune n'est ajoutée ;
+  5. aucun import ne pointe vers un fichier absent de l'inventaire et que tu
+     n'as pas écrit ;
+  6. aucun fichier n'est tronqué."""
 
     def run(self, context: dict) -> dict:
         plan = context.get("plan", {})
+        config = self.load_config()
+
         textes = {}
         try:
             textes = self.read_json("temp/textes.json")
         except (OSError, ValueError):
             self.logger.info("Pas de textes.json, le front sera écrit depuis le brief seul")
 
+        # Les collections sont déclarées par Pierre dans config.json. Sans
+        # elles, le modèle invente un identifiant, et le dossier contenu/ ne
+        # correspond plus à rien de ce que le projet attendait.
+        collections = collections_declarees(config)
+
         message = f"""{self.cahier_des_charges(plan)}
 
-CONTRAT DU SQUELETTE, à respecter à la lettre :
+CONTRAT DU SQUELETTE, il fait autorité :
 {self._contrat()}
 
-FICHIERS DÉJÀ PRÉSENTS dans le projet (ne les réécris pas, sauf ceux que tu as
-le droit d'écrire) :
-{self._arborescence()}
+COLLECTIONS DÉCLARÉES POUR CE PROJET. Reprends ces identifiants tels quels,
+côté dossier `contenu/` comme côté adresses :
+{compact_json(collections) if collections else "aucune"}
 
 BRIEF DU CLIENT :
 {self.read_text("brief.md")}
 
-TEXTES DÉJÀ RÉDIGÉS (à placer dans contenu/ ou site.config.ts, pas à réécrire) :
+TEXTES DÉJÀ RÉDIGÉS. Place-les dans contenu/ ou site.config.ts, ne les réécris
+pas et n'en invente pas d'autres :
 {compact_json(textes) if textes else "aucun"}
 
-Écris maintenant tous les fichiers nécessaires."""
+Écris maintenant tous les fichiers nécessaires, dans l'ordre indiqué."""
 
         # Streaming et budget large : c'est le plus gros appel de la chaîne, et
         # une réponse coupée au milieu d'un fichier fait perdre la passe
@@ -405,24 +507,53 @@ class ReparateurAgent(BaseAgent):
         super().__init__("reparateur", "Réparateur, corrige les erreurs de build", project)
 
     def _prompt_systeme(self) -> str:
+        site = Path(self.project.site_dir)
+
         return f"""Tu corriges des erreurs de compilation dans un site Next.js en export
 statique. On te donne le diagnostic exact de l'outil et le contenu des fichiers
-concernés.
+concernés. Le diagnostic vient d'ESLint, de TypeScript ou de `next build` : il
+ne se trompe pas sur ce qu'il affirme.
 
-{digest(Path(self.project.site_dir))}
+{digest(site)}
 
-Réponds avec les fichiers CORRIGÉS EN ENTIER, un par bloc :
+CE QUE LE SQUELETTE OFFRE, et que tu n'as pas à recréer pour réparer :
+{inventaire_api(site)}
+
+LES QUATRE ERREURS LES PLUS FRÉQUENTES SUR CE SQUELETTE, et leur vraie cause :
+
+- « export const dynamic ... not configured on route » : une route asynchrone
+  (sitemap, robots, route.ts) sans `export const dynamic = "force-static"`.
+  Ajoute la ligne dans le fichier de la route, le message ne dit pas lequel.
+- « Calling setState synchronously within an effect » : un `useEffect` qui pose
+  un état. Passe par `useSyncExternalStore`, ou remonte le calcul au rendu.
+  Ne désactive pas la règle.
+- « Type X is not assignable to type Y » entre une donnée et son type : c'est
+  presque toujours `undefined` ou une chaîne vide là où le contrat dit `null`.
+  Corrige la DONNÉE, pas le type.
+- une propriété qui n'existe pas sur un type : le contenu et lib/types.ts ont
+  divergé. Le contrat gagne : c'est le fichier de contenu qu'on aligne.
+
+RÉPONDS AVEC LES FICHIERS CORRIGÉS EN ENTIER, un par bloc :
 
 === FICHIER: chemin/du/fichier.tsx ===
 le fichier complet, corrigé
 === FIN ===
 
-Aucun texte hors des blocs. Ne renvoie que les fichiers que tu modifies.
-N'abrège jamais : un fichier renvoyé remplace l'ancien intégralement.
+Aucun texte hors des blocs. Ne renvoie QUE les fichiers que tu modifies : un
+fichier renvoyé remplace l'ancien intégralement, donc renvoyer un fichier
+inchangé n'a aucun effet utile et multiplie les occasions de le casser.
+N'abrège jamais.
 
-Corrige la CAUSE, pas le symptôme. Supprimer un appel, désactiver une règle
-avec eslint-disable ou remplacer un type par `any` fait passer la porte et
-casse le site : ce sont des réparations interdites."""
+CORRIGE LA CAUSE, PAS LE SYMPTÔME. Ces réparations sont interdites, parce
+qu'elles font passer la porte en cassant le site :
+- supprimer l'appel ou la section qui pose problème ;
+- désactiver une règle avec eslint-disable ;
+- remplacer un type par `any`, ou faire taire une erreur avec `as` ;
+- rendre optionnel un champ que le contrat déclare obligatoire.
+
+Si l'erreur vient d'une classe CSS absente, ajoute la règle dans
+app/composants.css plutôt que de changer le balisage : le balisage vient du
+cahier des charges, la feuille de style non."""
 
     def _joindre_fichiers(self, problemes: list[dict]) -> str:
         """Le contenu des fichiers mis en cause, sans doublon."""
