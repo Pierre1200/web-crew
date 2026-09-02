@@ -126,9 +126,11 @@ def _graphe_double(monkeypatch, resultats_porte, couts=None):
     for nom in ("ingestion", "copywriter"):
         monkeypatch.setattr(noeuds, nom, facture(nom))
     monkeypatch.setattr(noeuds, "preparer", lambda e: {"journal": ["preparer"]})
+    # C'est `orchestration_front` que le graphe câble, pas le nœud de la V1 :
+    # doubler le mauvais laisse tourner le vrai, qui va lire brief.md.
     monkeypatch.setattr(
-        noeuds, "orchestration",
-        lambda e: {"plan": {"taches": []}, "agents_planifies": ["copywriter"],
+        gf, "orchestration_front",
+        lambda e: {"plan": {"taches": []}, "agents_planifies": ["copywriter", "front"],
                    "cout_euros": couts.get("orchestration", 0.0), "journal": ["orchestration"]},
     )
     monkeypatch.setattr(noeuds, "direction", facture("direction"))

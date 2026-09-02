@@ -5,8 +5,47 @@ from utils.project import Project
 from utils.cleaners import compact_json
 
 
+# LES AGENTS D'EXÉCUTION, décrits comme des données et non comme une prose
+# figée dans le prompt. C'est ce qui permet à deux pipelines différents de
+# partager cet agent sans que l'un annonce au modèle des agents que l'autre
+# n'a pas. Un plan qui prévoit un agent inexistant n'échoue pas : il est
+# ignoré en silence, et personne ne comprend pourquoi l'étape n'a rien fait.
+AGENTS_V1 = [
+    {
+        "nom": "copywriter", "priorite": 1,
+        "role": "rédige tous les textes du site à partir des sections définies dans le brief",
+        "quand": "toujours, pour un site vitrine",
+    },
+    {
+        "nom": "designer", "priorite": 2,
+        "role": "génère le CSS, l'HTML et le JS du site en une seule requête cohérente",
+        "quand": "toujours, pour un site vitrine",
+    },
+    {
+        "nom": "seo", "priorite": 3,
+        "role": "génère title, meta description, Open Graph, Schema.org, robots.txt, sitemap.xml",
+        "quand": "si le brief mentionne le référencement, une zone géographique ou une visibilité locale",
+    },
+]
+
+
+def bloc_agents(agents: list[dict]) -> str:
+    """La section du prompt qui décrit les agents réellement disponibles."""
+    lignes = [
+        "Agents disponibles. Tu décides lesquels inclure, selon le projet :",
+        *(f"- {a['nom']} : {a['role']}" for a in agents),
+        "",
+        "Règles de décision, et priorité à donner à chacun :",
+        *(f"- {a['nom']} (priorité {a['priorite']}) : {a['quand']}" for a in agents),
+        "",
+        "N'inscris AUCUN agent absent de cette liste : il serait ignoré sans "
+        "que rien ne le signale.",
+    ]
+    return "\n".join(lignes)
+
+
 class OrchestratorAgent(BaseAgent):
-    """Chef de brigade — lit le brief et coordonne les agents."""
+    """Chef de brigade, lit le brief et coordonne les agents."""
 
     # PLUS une tâche mécanique depuis que le plan porte la maquette : c'est
     # l'orchestrateur qui transcrit la structure décrite dans brief.md en
@@ -19,14 +58,14 @@ class OrchestratorAgent(BaseAgent):
     def __init__(self, project: Project):
         super().__init__(
             name="orchestrator",
-            role="Chef de projet — analyse le brief et planifie les tâches",
+            role="Chef de projet, analyse le brief et planifie les tâches",
             project=project
         )
 
     def _bloc_contexte_ingestion(self) -> str:
         """Formate le contexte d'ingestion en bloc prêt à injecter dans le prompt.
 
-        Retourne une chaîne vide si l'ingestion n'a rien produit — ainsi
+        Retourne une chaîne vide si l'ingestion n'a rien produit, ainsi
         l'orchestrateur fonctionne à l'identique quand data/ est absent.
         (La lecture défensive vit dans BaseAgent.lire_contexte_ingestion.)
         """
@@ -40,7 +79,7 @@ class OrchestratorAgent(BaseAgent):
             "manques": ctx.get("manques", []),
         }
         self.logger.info(
-            f"Contexte d'ingestion injecté — {len(digest['themes_couverts'])} thème(s), "
+            f"Contexte d'ingestion injecté, {len(digest['themes_couverts'])} thème(s), "
             f"{len(digest['manques'])} manque(s)"
         )
         return (
@@ -51,9 +90,14 @@ class OrchestratorAgent(BaseAgent):
         )
 
     def run(self, context: dict) -> dict:
-        """Lit le brief et produit un plan de travail pour les autres agents."""
+        """Lit le brief et produit un plan de travail pour les autres agents.
 
+        `context["agents_disponibles"]` décrit les agents du pipeline qui
+        appelle. Absent, on retombe sur ceux de la V1 : la commande `generate`
+        se comporte donc exactement comme avant.
+        """
         typer.echo("🎯 Orchestrateur : lecture du brief...")
+        agents = context.get("agents_disponibles") or AGENTS_V1
 
         brief_text = self.read_text("brief.md")
         config = self.load_config()
@@ -66,14 +110,13 @@ Un agent d'ingestion a parfois déjà digéré les données réelles du client
 instructions des agents et le style_guide, sans jamais inventer de contenu absent.
 Réponds UNIQUEMENT en JSON valide, sans texte avant ou après, sans balises markdown, sans ```json.
 
-Agents disponibles — tu décides lesquels inclure et dans quel ordre selon le projet :
-- copywriter : rédige tous les textes du site à partir des sections définies dans le brief
-- designer   : génère le CSS, l'HTML et le JS du site en une seule requête cohérente
-- seo        : génère title, meta description, Open Graph, Schema.org, robots.txt, sitemap.xml
+""" + bloc_agents(agents) + """
 
-Règles de décision :
-- copywriter (priorité 1) + designer (priorité 2) : toujours pour un site vitrine
-- seo (priorité 3) : inclure si le brief mentionne référencement, zone géographique ou visibilité locale
+L'INSTRUCTION QUE TU ÉCRIS POUR CHAQUE AGENT EST TRANSMISE TELLE QUELLE. Celle
+de l'agent qui produit le site porte la maquette : ordre des blocs, colonnes,
+contraintes de mise en page. Transcris fidèlement ce que décrit le brief, sans
+résumer et sans ajouter. C'est le seul chemin par lequel la structure voulue
+par le client atteint la génération.
 
 Le JSON doit avoir cette structure exacte :
 {
@@ -122,15 +165,15 @@ Décide quels agents lancer et produis le plan de travail."""
         required = {"projet", "taches", "style_guide"}
         missing = required - set(plan.keys())
         if missing:
-            raise ValueError(f"Plan invalide — clés manquantes : {missing}")
+            raise ValueError(f"Plan invalide, clés manquantes : {missing}")
         if not isinstance(plan.get("taches"), list) or not plan["taches"]:
-            raise ValueError("Plan invalide — 'taches' doit être une liste non vide")
+            raise ValueError("Plan invalide, 'taches' doit être une liste non vide")
         # Valide aussi chaque tâche : un champ absent ici donnerait un KeyError
         # cryptique plus loin (tri par priorité, dispatch, copywriter).
         for i, tache in enumerate(plan["taches"]):
             manquants = {"agent", "priorite", "instruction"} - set(tache)
             if manquants:
-                raise ValueError(f"Plan invalide — tâche {i} sans champ(s) : {manquants}")
+                raise ValueError(f"Plan invalide, tâche {i} sans champ(s) : {manquants}")
 
         self.write_json("temp/plan.json", plan)
         typer.echo(f"✅ Plan de travail généré → {self.project.temp_dir}/plan.json")

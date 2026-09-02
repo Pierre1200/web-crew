@@ -43,7 +43,7 @@ _MARQUEURS_REQUIS = {
 # vaut toujours moins qu'une valeur précise.
 _PRINCIPES_GENERIQUES = """
 
-PRINCIPES DE COMPOSITION — c'est ce qui sépare un site travaillé d'un gabarit :
+PRINCIPES DE COMPOSITION. C'est ce qui sépare un site travaillé d'un gabarit :
 - Rythme vertical VARIABLE : toutes les sections n'ont pas la même respiration. \
 Alterne blocs denses et blocs aérés plutôt qu'un padding uniforme partout.
 - Une seule chose domine par écran. Trois éléments de poids égal qui se disputent \
@@ -74,7 +74,7 @@ class DesignerAgent(BaseAgent):
     def __init__(self, project: Project):
         super().__init__(
             name="designer",
-            role="Designer — génère le HTML/CSS/JS du site",
+            role="Designer, génère le HTML/CSS/JS du site",
             project=project
         )
 
@@ -100,14 +100,14 @@ class DesignerAgent(BaseAgent):
 
         # Avertir explicitement si un séparateur est absent — évite les fichiers vides silencieux
         if not html:
-            self.logger.error(f"Séparateur {_SEP_HTML} absent de la réponse — HTML vide")
+            self.logger.error(f"Séparateur {_SEP_HTML} absent de la réponse, HTML vide")
             typer.echo(f"   ❌ Séparateur {_SEP_HTML} introuvable dans la réponse du modèle")
         if not css:
-            self.logger.error(f"Séparateur {_SEP_CSS} absent de la réponse — CSS vide")
-            typer.echo(f"   ❌ Séparateur {_SEP_CSS} introuvable — CSS vide")
+            self.logger.error(f"Séparateur {_SEP_CSS} absent de la réponse, CSS vide")
+            typer.echo(f"   ❌ Séparateur {_SEP_CSS} introuvable, CSS vide")
         if not js:
-            self.logger.error(f"Séparateur {_SEP_JS} absent de la réponse — JS vide")
-            typer.echo(f"   ❌ Séparateur {_SEP_JS} introuvable — JS vide")
+            self.logger.error(f"Séparateur {_SEP_JS} absent de la réponse, JS vide")
+            typer.echo(f"   ❌ Séparateur {_SEP_JS} introuvable, JS vide")
 
         # Post-mortem : la réponse fautive est sauvegardée telle quelle,
         # sinon impossible de comprendre ce que le modèle a réellement renvoyé
@@ -180,7 +180,7 @@ class DesignerAgent(BaseAgent):
     def lire_direction(self) -> dict:
         """Relit temp/direction.json produit par l'agent Direction artistique.
 
-        Retourne {} si l'étape n'a pas tourné — le designer retombe alors sur
+        Retourne {} si l'étape n'a pas tourné, le designer retombe alors sur
         ses principes de composition génériques, comme avant P1.
         """
         chemin = self.project.temp_dir / "direction.json"
@@ -199,16 +199,16 @@ class DesignerAgent(BaseAgent):
         Retourne (bloc de décisions, bloc de principes). Le second est le
         rappel générique d'avant P1 : il n'est renvoyé QUE si aucune direction
         n'a été arrêtée. Sinon des décisions chiffrées remplacent des conseils
-        vagues, et le prompt ne gonfle pas — il se précise.
+        vagues, et le prompt ne gonfle pas, il se précise.
         """
         direction = self.lire_direction()
 
         if not direction:
-            self.logger.info("Aucune direction artistique — principes génériques")
+            self.logger.info("Aucune direction artistique, principes génériques")
             return "", _PRINCIPES_GENERIQUES
 
         archetype = direction.get("archetype", "")
-        self.logger.info(f"Direction artistique appliquée — archétype {archetype!r}")
+        self.logger.info(f"Direction artistique appliquée, archétype {archetype!r}")
         typer.echo(f"   🎨 Direction : {archetype}")
 
         pieges = direction.get("pieges_a_eviter") or []
@@ -219,7 +219,7 @@ class DesignerAgent(BaseAgent):
 
         return f"""
 
-DIRECTION ARTISTIQUE ARRÊTÉE POUR CE PROJET — ce sont des décisions, pas des \
+DIRECTION ARTISTIQUE ARRÊTÉE POUR CE PROJET : ce sont des décisions, pas des \
 suggestions. Applique-les à la lettre : les valeurs d'espacement, l'échelle \
 typographique et la palette sont celles-ci, pas d'autres.
 {compact_json({k: v for k, v in direction.items() if k != 'pieges_a_eviter'})}
@@ -228,7 +228,7 @@ Lecture de ces décisions :
 - `archetype` commande la mise en page d'ensemble ; il prime sur toute \
 convention par défaut, mais reste soumis au cahier des charges du client.
 - `palette.variables` et `palette.derivations` se transcrivent tels quels dans \
-`:root` ; respecte `usage_accent` — un accent partout ne fait plus accent.
+`:root` ; respecte `usage_accent`, un accent partout ne fait plus accent.
 - `espacement.rythme_sections` donne la respiration de CHAQUE section : c'est \
 ce qui crée le rythme, ne l'uniformise pas.
 - `mouvement.elements_animes` est une liste FERMÉE : rien d'autre ne s'anime.
@@ -245,12 +245,12 @@ client, c'est raté.{bloc_pieges}""", ""
         """
         manifeste = preparer_assets(self.project, self.lire_contexte_ingestion())
         if not manifeste:
-            self.logger.info("Aucune image client — images de remplissage utilisées")
+            self.logger.info("Aucune image client, images de remplissage utilisées")
             return "", False
 
         for lourde in images_lourdes(manifeste):
             message = (
-                f"{lourde['fichier']} pèse {lourde['poids_ko']} ko — "
+                f"{lourde['fichier']} pèse {lourde['poids_ko']} ko, "
                 "à compresser avant livraison"
             )
             self.logger.warning(message)
@@ -264,19 +264,19 @@ client, c'est raté.{bloc_pieges}""", ""
 
         return f"""
 
-IMAGES RÉELLES DU CLIENT — {len(manifeste)} fichier(s) déjà copiés dans output/assets/ :
+IMAGES RÉELLES DU CLIENT. {len(manifeste)} fichier(s) déjà copiés dans output/assets/ :
 {compact_json(manifeste)}
 
 Règles d'intégration des images (strictes) :
 - Utilise ces images EN PRIORITÉ. `src` reprend exactement le champ chemin_web \
-(chemin relatif, tel quel) — n'invente aucun autre chemin, aucune autre extension.
+(chemin relatif, tel quel), n'invente aucun autre chemin, aucune autre extension.
 - `width` et `height` reprennent les dimensions réelles indiquées. Elles réservent \
 la place avant chargement et empêchent la page de sauter sous les yeux du visiteur.
 - Respecte l'orientation : une image "portrait" ne se met pas dans un cadre \
 panoramique. Cadre selon le champ ratio, et si tu recadres, fais-le avec \
 object-fit: cover sans jamais déformer.
 - `alt` décrit ce que montre l'image, en t'appuyant sur son nom d'origine et sur \
-le champ description quand il existe — jamais « image » ni le nom du fichier brut.
+le champ description quand il existe, jamais « image » ni le nom du fichier brut.
 - Place chaque image dans la section indiquée par section_suggeree quand ce champ \
 est renseigné.
 - Ajoute loading="lazy" sauf sur la première image visible (au-dessus de la ligne \
@@ -293,7 +293,7 @@ de flottaison), qui doit charger immédiatement.
         manifeste = construire_manifeste(self.load_config())
 
         for erreur in manifeste["erreurs"]:
-            self.logger.error(f"Média ignoré — {erreur}")
+            self.logger.error(f"Média ignoré, {erreur}")
             typer.echo(f"   ⚠️  {erreur}")
 
         items = manifeste["items"]
@@ -302,20 +302,20 @@ de flottaison), qui doit charger immédiatement.
 
         fournisseurs = sorted({m["libelle"] for m in items})
         self.logger.info(
-            f"{len(items)} média(s) à intégrer — fournisseurs : {', '.join(fournisseurs)}"
+            f"{len(items)} média(s) à intégrer, fournisseurs : {', '.join(fournisseurs)}"
         )
-        typer.echo(f"   🎬 {len(items)} média(s) — {', '.join(fournisseurs)}")
+        typer.echo(f"   🎬 {len(items)} média(s), {', '.join(fournisseurs)}")
 
         titre = manifeste["titre_section"]
         entete = f'Titre de la section médias : « {titre} »\n' if titre else ""
 
         return f"""
 
-MÉDIAS À INTÉGRER — {len(items)} lecteur(s), hébergés chez plusieurs fournisseurs :
+MÉDIAS À INTÉGRER. {len(items)} lecteur(s), hébergés chez plusieurs fournisseurs :
 {entete}{compact_json(items)}
 
 Règles d'intégration des médias (strictes) :
-- Un <iframe> par média, dont l'attribut src reprend embed_url À L'IDENTIQUE — \
+- Un <iframe> par média, dont l'attribut src reprend embed_url À L'IDENTIQUE, \
 ne raccourcis, ne reconstruis et ne « corriges » aucune de ces URL.
 - Sur chaque iframe : loading="lazy", title reprenant le titre du média, \
 referrerpolicy="strict-origin-when-cross-origin", et allowfullscreen pour la vidéo.
@@ -393,14 +393,14 @@ s'adapte au nombre d'éléments, elle ne suppose pas un compte fixe.
             if a_des_images else
             '\n- Images d\'illustration : src="https://picsum.photos/seed/'
             '{mot-clé}/{largeur}/{hauteur}" avec un mot-clé court tiré du '
-            "contexte (minuscules, sans accent) et la classe img-placeholder — "
+            "contexte (minuscules, sans accent) et la classe img-placeholder, "
             "ratio adapté au cadrage voulu (4/3 → 800/600, 16/9 → 800/450)"
         )
 
         system_prompt = f"""\
 Tu es directeur artistique ET intégrateur front-end.
 Tu conçois des sites sur mesure : chaque projet a sa propre composition, dictée
-par le cahier des charges du client — jamais un gabarit réutilisé tel quel.
+par le cahier des charges du client, jamais un gabarit réutilisé tel quel.
 Tu génères les 3 fichiers du site en UNE SEULE réponse.
 
 Utilise EXACTEMENT ces séparateurs dans cet ordre, sans aucun texte entre les sections :
@@ -421,7 +421,7 @@ le code sans rien résumer."""
 IDENTITÉ VISUELLE (couleurs et polices décidées pour ce projet) :
 {compact_json(style_guide)}
 
-CONTENU RÉDIGÉ À INTÉGRER — une clé par bloc, à placer dans la structure demandée :
+CONTENU RÉDIGÉ À INTÉGRER. Une clé par bloc, à placer dans la structure demandée :
 {compact_json(textes)}
 {bloc_images}{bloc_medias}
 
@@ -442,11 +442,11 @@ chaque image, focus visible au clavier, contraste texte/fond conforme WCAG AA
 - CSS : variables dans :root (couleurs, polices, échelle d'espacement), reset \
 minimal en tête, mobile-first{fonts_css_note}
 - CSS rangé en couches déclarées en TÊTE de feuille : \
-@layer reset, base, composants, utilitaires; — puis chaque règle écrite dans \
+@layer reset, base, composants, utilitaires;, puis chaque règle écrite dans \
 sa couche. Non négociable : des correctifs automatiques sont ajoutés hors couche \
 après coup et doivent pouvoir l'emporter sans surenchère de spécificité.
 
-CSS MODERNE — sers-toi de ces outils là où ils apportent quelque chose, \
+CSS MODERNE : sers-toi de ces outils là où ils apportent quelque chose, \
 pas partout ni pour la démonstration :
 - Container queries : un composant réutilisable (carte, encart, média) réagit à \
 la largeur de SON conteneur (`container-type: inline-size` sur le parent, \
@@ -460,7 +460,7 @@ système tonal (surfaces, survols, ombres) à partir des 3-4 couleurs du projet,
 au lieu d'empiler des hexadécimaux sans lien entre eux. Les dégradés en oklab \
 n'ont pas la zone grisâtre des dégradés RGB.
 - `subgrid` sur les grilles de cartes pour que titres, textes et boutons \
-s'alignent d'une carte à l'autre — un alignement qui tient est une signature de \
+s'alignent d'une carte à l'autre, un alignement qui tient est une signature de \
 travail soigné.
 - `text-wrap: balance` sur les titres et `text-wrap: pretty` sur les paragraphes : \
 supprime les lignes veuves et les coupures disgracieuses.
@@ -474,13 +474,13 @@ leurs équivalents physiques.
 
 {bloc_principes}
 
-À ÉVITER — signature immédiate d'un site généré à la chaîne :
+À ÉVITER, signature immédiate d'un site généré à la chaîne :
 hero 100vh systématique, fade-in sur chaque section, trois cartes à ombre \
 identique alignées, dégradé violet, emoji en guise d'icône, texte de remplissage, \
 media query globale pour adapter un composant (c'est le rôle des container \
 queries), empilement d'hexadécimaux sans système tonal, `!important`.
 
-CONVENTIONS PAR DÉFAUT — à appliquer UNIQUEMENT si le cahier des charges ne dit \
+CONVENTIONS PAR DÉFAUT : à appliquer UNIQUEMENT si le cahier des charges ne dit \
 rien de contraire sur le point concerné :
 - Navigation sticky avec état .scrolled au défilement (si le site a une navigation)
 - Grille de cartes fluide sans palier arbitraire : \
@@ -489,13 +489,13 @@ rien de contraire sur le point concerné :
 - Alternance de surfaces obtenue par color-mix sur la couleur de fond, plutôt \
 que par deux couleurs sans rapport
 
-JAVASCRIPT (vanilla, aucune librairie) — uniquement ce que la page utilise \
+JAVASCRIPT (vanilla, aucune librairie), uniquement ce que la page utilise \
 réellement, pas de code mort. Tout ce que le CSS sait faire seul reste au CSS :
 - Révélation au défilement : seulement en repli, si tu n'as pas pu utiliser \
-`animation-timeline: view()` — via IntersectionObserver (classe .visible), sur \
+`animation-timeline: view()`, via IntersectionObserver (classe .visible), sur \
 les seuls éléments choisis
 - Navigation : classe .scrolled au défilement et menu burger mobile (classe .open) \
-— seulement s'il y a une navigation
+seulement s'il y a une navigation
 - Défilement doux : `scroll-behavior: smooth` en CSS suffit, pas de JS pour ça\
 {form_info}{regles_form_js}"""
 
@@ -524,22 +524,22 @@ les seuls éléments choisis
             (output_dir / "style.css").write_text(css, encoding="utf-8")
             ecrits.append("style.css")
         else:
-            self.logger.error("CSS vide après génération — style.css non écrasé")
-            typer.echo("   ❌ CSS vide — style.css existant conservé")
+            self.logger.error("CSS vide après génération, style.css non écrasé")
+            typer.echo("   ❌ CSS vide, style.css existant conservé")
 
         if js:
             (output_dir / "main.js").write_text(js, encoding="utf-8")
             ecrits.append("main.js")
         else:
-            self.logger.error("JS vide après génération — main.js non écrasé")
-            typer.echo("   ❌ JS vide — main.js existant conservé")
+            self.logger.error("JS vide après génération, main.js non écrasé")
+            typer.echo("   ❌ JS vide, main.js existant conservé")
 
         if self._valider_html(html):
             (output_dir / "index.html").write_text(html, encoding="utf-8")
             ecrits.append("index.html")
         else:
-            self.logger.error("HTML invalide après génération — index.html non écrasé")
-            typer.echo("   ❌ HTML incomplet — index.html existant conservé")
+            self.logger.error("HTML invalide après génération, index.html non écrasé")
+            typer.echo("   ❌ HTML incomplet, index.html existant conservé")
 
         if ecrits:
             typer.echo(f"✅ Site généré → {output_dir}/")
@@ -602,7 +602,7 @@ Commence directement par <!DOCTYPE html> et termine obligatoirement par </body><
 
 Régénère l'index.html complet de ce site, en réutilisant le CSS déjà produit.
 
-Classes CSS disponibles — utilise UNIQUEMENT celles-ci, n'en invente aucune :
+Classes CSS disponibles, utilise UNIQUEMENT celles-ci, n'en invente aucune :
 {classes_str}
 {bloc_images}{bloc_medias}
 
@@ -695,14 +695,14 @@ Cible UNIQUEMENT les ids et classes présents dans ce HTML :
 
         if manquants:
             raise ValueError(
-                f"Gabarits incomplets — séparateur(s) absent(s) : {', '.join(manquants)}"
+                f"Gabarits incomplets, séparateur(s) absent(s) : {', '.join(manquants)}"
             )
 
         for cle, requis in _MARQUEURS_REQUIS.items():
             absents = requis - marqueurs_presents(gabarits[cle])
             if absents:
                 raise ValueError(
-                    f"Gabarit '{cle}' inutilisable — marqueur(s) manquant(s) : "
+                    f"Gabarit '{cle}' inutilisable, marqueur(s) manquant(s) : "
                     + ", ".join(f"{{{{{m}}}}}" for m in sorted(absents))
                 )
 
@@ -710,7 +710,7 @@ Cible UNIQUEMENT les ids et classes présents dans ce HTML :
             faute = marqueur_html_dans_attribut(gabarit)
             if faute:
                 raise ValueError(
-                    f"Gabarit '{cle}' inutilisable — {{{{{faute}}}}} est placé "
+                    f"Gabarit '{cle}' inutilisable, {{{{{faute}}}}} est placé "
                     f"dans un attribut HTML. Ce marqueur est remplacé par un "
                     f"bloc HTML complet, pas par une URL : le mettre dans un "
                     f"src= ou un href= imbrique du balisage et n'affiche rien."
@@ -719,12 +719,12 @@ Cible UNIQUEMENT les ids et classes présents dans ce HTML :
         return gabarits
 
     def generer_gabarits(self, collection: dict, contenus: list[dict]) -> dict:
-        """Produit les gabarits d'une collection — UN SEUL appel, quel que soit
+        """Produit les gabarits d'une collection, UN SEUL appel, quel que soit
         le nombre de contenus.
 
         Le modèle ne voit jamais les textes du client : il dessine des
         emplacements. Python les remplit ensuite en échappant tout, ce qui rend
-        l'injection impossible par construction — et rend le coût indépendant
+        l'injection impossible par construction, et rend le coût indépendant
         du nombre de pages.
         """
         typer.echo(f"   → Gabarits de la collection « {collection['titre']} »...")
@@ -780,14 +780,14 @@ Réponds avec EXACTEMENT ces sept blocs, dans cet ordre, sans texte entre eux :
 ===PAGE_LISTE===
 Page HTML complète (<!DOCTYPE html> à </html>) listant les contenus.
 Marqueurs : {{{{titre_collection}}}}, {{{{chapeau}}}}, {{{{nombre}}}}, \
-{{{{items}}}} (obligatoire — la liste rendue), {{{{racine}}}}, {{{{url_accueil}}}}
+{{{{items}}}} (obligatoire, la liste rendue), {{{{racine}}}}, {{{{url_accueil}}}}
 ===ITEM_LISTE===
 UN élément de la liste (souvent un <li> ou un <article>).
 Marqueurs : {{{{url}}}} (obligatoire), {{{{titre}}}} (obligatoire), {{{{chapo}}}}, \
 {{{{date_fr}}}}, {{{{temps_lecture}}}}, {{{{couverture}}}}
 ===PAGE_CONTENU===
 Page HTML complète d'un contenu.
-Marqueurs : {{{{titre}}}} (obligatoire), {{{{corps}}}} (obligatoire — le texte rendu), \
+Marqueurs : {{{{titre}}}} (obligatoire), {{{{corps}}}} (obligatoire, le texte rendu), \
 {{{{chapo}}}}, {{{{date_fr}}}}, {{{{temps_lecture}}}}, {{{{couverture}}}}, \
 {{{{url_liste}}}}, {{{{url_accueil}}}}, {{{{racine}}}}
 
@@ -813,7 +813,7 @@ Le balisage d'une image de couverture. Marqueurs : {{{{src}}}}, {{{{alt}}}}
 
 RÈGLES :
 - Ces pages vivent dans un SOUS-DOSSIER : tous les liens vers les fichiers du \
-site sont préfixés par {{{{racine}}}} — <link rel="stylesheet" \
+site sont préfixés par {{{{racine}}}}, <link rel="stylesheet" \
 href="{{{{racine}}}}style.css">, <script src="{{{{racine}}}}main.js"></script>.
 - Chaque page porte <meta charset="UTF-8">, la meta viewport, et un seul <h1>.
 - Reprends l'en-tête et le pied de l'accueil à l'identique, en corrigeant leurs \
@@ -846,7 +846,7 @@ BEM du CSS existant.
         C'est ce qui rend le mécanisme fiable : avec un simple ajout en fin de
         feuille, un correctif `.hero{...}` ne battrait PAS un `.section .hero{...}`
         existant (spécificité supérieure). Si la feuille n'utilise aucune couche,
-        on retombe sur l'ordre d'écriture — le comportement d'avant, sans
+        on retombe sur l'ordre d'écriture, le comportement d'avant, sans
         régression.
 
         Retourne le nombre de correctifs appliqués.
@@ -857,7 +857,7 @@ BEM du CSS existant.
 
         css_path = self.project.output_dir / "style.css"
         if not css_path.exists():
-            self.logger.error("style.css absent — correctifs visuels non appliqués")
+            self.logger.error("style.css absent, correctifs visuels non appliqués")
             return 0
 
         morceaux = []
@@ -865,7 +865,7 @@ BEM du CSS existant.
             constat = (p.get("constat") or "").replace("*/", "").strip()
             morceaux.append(
                 f"/* [{p.get('gravite', '?')}] {p.get('zone', '?')} "
-                f"({p.get('format', 'tous')}) — {constat[:140]} */"
+                f"({p.get('format', 'tous')}), {constat[:140]} */"
             )
             morceaux.append(strip_markdown_fences(p["correction_css"]).strip())
 
@@ -887,7 +887,7 @@ BEM du CSS existant.
 
         if not utilise_layers:
             self.logger.warning(
-                "style.css n'utilise pas @layer — un correctif peut être battu "
+                "style.css n'utilise pas @layer, un correctif peut être battu "
                 "par une règle existante plus spécifique"
             )
 
@@ -898,7 +898,7 @@ BEM du CSS existant.
         """Génère UNIQUEMENT les règles CSS pour les classes manquantes.
 
         Reçoit directement les noms de classes (extraits par main.py depuis
-        les problèmes structurés du validateur) — plus aucun parsing de
+        les problèmes structurés du validateur), plus aucun parsing de
         message humain ici.
         """
         typer.echo("   🔧 Designer : génération des règles manquantes...")

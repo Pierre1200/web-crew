@@ -76,7 +76,7 @@ class SeoAgent(BaseAgent):
     def __init__(self, project: Project):
         super().__init__(
             name="seo",
-            role="SEO — optimise le site pour les moteurs de recherche",
+            role="SEO, optimise le site pour les moteurs de recherche",
             project=project
         )
 
@@ -89,6 +89,12 @@ class SeoAgent(BaseAgent):
 
         system_prompt = """Tu es un expert SEO technique.
 Tu génères des métadonnées pour un site vitrine, optimisées pour le référencement local.
+
+N'INVENTE AUCUNE DONNÉE FACTUELLE. Le schema.org est lu par les moteurs comme
+une déclaration du client : une adresse, une région ou un horaire inventés sont
+une erreur publiée sous son nom. Un champ dont la valeur n'est pas dans les
+informations fournies est simplement OMIS du JSON.
+
 Réponds UNIQUEMENT en JSON valide, sans balise markdown."""
 
         user_message = f"""Voici les infos du client :
@@ -130,7 +136,7 @@ Produis un JSON avec cette structure exacte :
         html_path = self.project.output_dir / "index.html"
 
         if not html_path.exists():
-            typer.echo("   ⚠️  index.html introuvable — lance le designer d'abord")
+            typer.echo("   ⚠️  index.html introuvable, lance le designer d'abord")
             return
 
         html = html_path.read_text(encoding="utf-8")
@@ -203,5 +209,5 @@ Sitemap: sitemap.xml
         self._injecter_dans_html(meta)
         self._generer_fichiers_seo()
 
-        typer.echo("✅ SEO terminé — métadonnées générées et injectées")
+        typer.echo("✅ SEO terminé, métadonnées générées et injectées")
         return meta

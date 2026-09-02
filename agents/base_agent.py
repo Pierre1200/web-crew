@@ -38,7 +38,7 @@ class BaseAgent:
         self.name = name
         self.role = role
         self.project = project
-        self._client = None  # créé au premier appel API — voir la property client
+        self._client = None  # créé au premier appel API, voir la property client
         self.logger = self._setup_logger()
 
     @property
@@ -54,7 +54,7 @@ class BaseAgent:
             api_key = os.getenv("ANTHROPIC_API_KEY")
             if not api_key:
                 raise RuntimeError(
-                    "ANTHROPIC_API_KEY absente — renseigne-la dans .env "
+                    "ANTHROPIC_API_KEY absente, renseigne-la dans .env "
                     "ou dans l'environnement avant de lancer un agent."
                 )
             self._client = anthropic.Anthropic(api_key=api_key)
@@ -74,7 +74,7 @@ class BaseAgent:
         conso["appels"] += 1
 
     def _kwargs_thinking(self) -> dict:
-        """Renvoie {'thinking': ...} si l'agent l'active, sinon {} — pour ne pas
+        """Renvoie {'thinking': ...} si l'agent l'active, sinon {}, pour ne pas
         envoyer le paramètre aux modèles qui ne le supportent pas (Haiku 4.5)."""
         return {"thinking": self.THINKING} if self.THINKING else {}
 
@@ -110,12 +110,12 @@ class BaseAgent:
         """Extrait le texte d'une réponse Claude de façon défensive.
 
         Gère les refus (stop_reason == 'refusal') et ne suppose pas que le
-        premier bloc est du texte — évite l'IndexError si content est vide ou
+        premier bloc est du texte, évite l'IndexError si content est vide ou
         commence par un bloc non-texte.
 
         `allow_empty=True` tolère une réponse sans bloc texte : utile en
         poursuite quand le budget de tokens a été entièrement consommé par le
-        raisonnement (stop_reason == 'max_tokens') avant tout texte — la boucle
+        raisonnement (stop_reason == 'max_tokens') avant tout texte, la boucle
         appelante relancera la génération au lieu d'échouer.
         """
         if message.stop_reason == "refusal":
@@ -141,7 +141,7 @@ class BaseAgent:
         Avant, une réponse imparsable était perdue (seuls 200 caractères
         survivaient dans le message d'exception) : impossible de faire un
         post-mortem. Maintenant elle atterrit dans logs/<agent>_reponse_invalide.txt
-        AVANT que l'erreur remonte — le `raise` nu relance l'exception d'origine.
+        AVANT que l'erreur remonte, le `raise` nu relance l'exception d'origine.
         """
         try:
             return parse_json_safe(response)
@@ -149,24 +149,24 @@ class BaseAgent:
             self.project.logs_dir.mkdir(parents=True, exist_ok=True)
             dump = self.project.logs_dir / f"{self.name}_reponse_invalide.txt"
             dump.write_text(response, encoding="utf-8")
-            self.logger.error(f"JSON invalide — réponse brute sauvegardée : {dump}")
+            self.logger.error(f"JSON invalide, réponse brute sauvegardée : {dump}")
             typer.echo(f"   💾 Réponse brute sauvegardée pour analyse : {dump}")
             raise
 
-    def cahier_des_charges(self, plan: dict) -> str:
+    def cahier_des_charges(self, plan: dict, pour=("front", "designer")) -> str:
         """Reconstitue la commande réelle du client, telle que le designer doit
-        la respecter — et telle que la critique visuelle doit la vérifier.
+        la respecter, et telle que la critique visuelle doit la vérifier.
 
         C'était LE trou de l'architecture : Pierre décrit une maquette précise
         dans brief.md, l'orchestrateur la transcrit fidèlement dans
         plan["taches"], et le designer ne lisait que style_guide + textes.json.
         Toute l'information de STRUCTURE (ordre des blocs, colonnes, contraintes
-        de mise en page) était écrite sur le disque puis jetée — d'où des rendus
+        de mise en page) était écrite sur le disque puis jetée, d'où des rendus
         qui appliquaient toujours le même gabarit quel que soit le brief.
 
         Trois sources, de la plus précise à la plus générale :
         - l'instruction que l'orchestrateur a écrite POUR le designer
-        - config["site"]["sections"] : les libellés riches ("Hero — deux
+        - config["site"]["sections"] : les libellés riches ("Hero, deux
           colonnes : portrait à gauche + accroche à droite"), pas les clés
           aplaties de textes.json
         - toute clé "_note…" sous site ou site.style : les consignes libres
@@ -177,9 +177,15 @@ class BaseAgent:
         """
         site = self.load_config().get("site", {})
 
+        # L'agent qui PRODUIT le site porte la maquette dans son instruction.
+        # Il s'appelle « designer » en V1 et « front » en V2 : on cherche donc
+        # les deux, dans l'ordre de préférence donné. Chercher un seul nom
+        # ferait perdre la structure décrite par le client, en silence.
         instruction = next(
-            (t.get("instruction", "") for t in plan.get("taches", [])
-             if t.get("agent") == "designer"),
+            (t.get("instruction", "")
+             for nom in pour
+             for t in plan.get("taches", [])
+             if t.get("agent") == nom),
             "",
         )
         sections_config = site.get("sections", []) or []
@@ -197,11 +203,11 @@ class BaseAgent:
                     notes.append(valeur.strip())
 
         if not (instruction or sections_config or notes):
-            self.logger.info("Aucun cahier des charges — conventions par défaut")
+            self.logger.info("Aucun cahier des charges, conventions par défaut")
             return ""
 
         blocs = [
-            "CAHIER DES CHARGES DU CLIENT — fait autorité sur TOUTES les "
+            "CAHIER DES CHARGES DU CLIENT : fait autorité sur TOUTES les "
             "conventions par défaut listées plus bas."
         ]
         if instruction:
@@ -222,7 +228,7 @@ class BaseAgent:
         )
 
         self.logger.info(
-            f"Cahier des charges transmis — instruction: {bool(instruction)}, "
+            f"Cahier des charges transmis, instruction: {bool(instruction)}, "
             f"{len(sections_config)} section(s) décrite(s), {len(notes)} note(s)"
         )
         return "\n".join(blocs)
@@ -231,7 +237,7 @@ class BaseAgent:
         """Relit temp/context.json produit par l'agent Ingestion, s'il existe.
 
         Retourne le contexte complet, ou {} si le fichier est absent, vide ou
-        illisible — l'agent appelant fonctionne alors comme si data/ n'existait
+        illisible, l'agent appelant fonctionne alors comme si data/ n'existait
         pas. Mutualisé ici : l'orchestrateur et le copywriter dupliquaient
         chacun cette lecture défensive (violation DRY).
         """
@@ -272,11 +278,11 @@ class BaseAgent:
         Pour les réponses courtes à schéma fixe (JSON de plan, métadonnées).
         Le défaut de 16 000 tient sous le délai d'expiration HTTP tout en
         laissant de la marge : ATTENTION, les tokens de raisonnement se
-        déduisent de max_tokens — un budget trop serré peut être entièrement
+        déduisent de max_tokens, un budget trop serré peut être entièrement
         consommé par la réflexion, avant le moindre caractère de réponse.
         Au-delà, passer par call_claude_continuable (streaming).
         """
-        self.logger.info(f"Appel API Claude — {len(user_message)} caractères")
+        self.logger.info(f"Appel API Claude, {len(user_message)} caractères")
 
         message = self.client.messages.create(
             model=self.MODEL,
@@ -293,7 +299,7 @@ class BaseAgent:
         usage = message.usage
         self._enregistrer_usage(usage)
         self.logger.info(
-            f"Réponse reçue — {len(response)} caractères | "
+            f"Réponse reçue, {len(response)} caractères | "
             f"tokens in: {usage.input_tokens}, out: {usage.output_tokens}"
         )
         return response
@@ -321,7 +327,7 @@ class BaseAgent:
         Utiliser build_bloc_image() pour construire les blocs d'image.
         """
         nb_images = sum(1 for b in blocs if b.get("type") == "image")
-        self.logger.info(f"Appel API Claude (vision) — {nb_images} image(s)")
+        self.logger.info(f"Appel API Claude (vision), {nb_images} image(s)")
 
         with self.client.messages.stream(
             model=self.MODEL,
@@ -337,7 +343,7 @@ class BaseAgent:
         usage = message.usage
         self._enregistrer_usage(usage)
         self.logger.info(
-            f"Réponse reçue — {len(response)} caractères | "
+            f"Réponse reçue, {len(response)} caractères | "
             f"tokens in: {usage.input_tokens}, out: {usage.output_tokens} | "
             f"stop: {message.stop_reason}"
         )
@@ -346,7 +352,7 @@ class BaseAgent:
         # suite, pendant que la réponse brute est encore récupérable.
         if message.stop_reason == "max_tokens":
             self.logger.error(
-                f"Réponse vision tronquée à max_tokens={max_tokens} — "
+                f"Réponse vision tronquée à max_tokens={max_tokens}, "
                 "relever le budget de cet appel"
             )
             typer.echo(
@@ -393,7 +399,7 @@ class BaseAgent:
         type qui avait produit un <label> dupliqué sur un site déjà livré).
 
         Poursuite automatique si `auto_continue=True` OU si l'entrée standard
-        n'est pas un terminal (run CI/cron) — sinon on demande confirmation.
+        n'est pas un terminal (run CI/cron), sinon on demande confirmation.
         """
         import sys
 
@@ -401,7 +407,7 @@ class BaseAgent:
         full_response = ""
 
         while True:
-            self.logger.info(f"Appel API Claude — {len(messages[-1]['content'])} chars (dernier msg)")
+            self.logger.info(f"Appel API Claude, {len(messages[-1]['content'])} chars (dernier msg)")
 
             # with ... as stream : le SDK ouvre la connexion, la maintient le
             # temps de la génération, et la referme proprement à la sortie du
@@ -423,7 +429,7 @@ class BaseAgent:
             usage = message.usage
             self._enregistrer_usage(usage)
             self.logger.info(
-                f"Réponse reçue — {len(chunk)} chars | "
+                f"Réponse reçue, {len(chunk)} chars | "
                 f"in: {usage.input_tokens}, out: {usage.output_tokens} | "
                 f"stop: {message.stop_reason}"
             )
@@ -454,5 +460,5 @@ class BaseAgent:
         return full_response
 
     def run(self, context: dict) -> dict:
-        """Méthode principale — chaque agent DOIT la redéfinir."""
+        """Méthode principale, chaque agent DOIT la redéfinir."""
         raise NotImplementedError(f"L'agent {self.name} doit implémenter run()")

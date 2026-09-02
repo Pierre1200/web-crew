@@ -139,3 +139,129 @@ def test_les_prompts_portent_la_documentation_de_la_version_installee(agents_fro
         rendu = agent._prompt_systeme()
         assert "CE BLOC A RAISON" in rendu
         assert "proxy.js" in rendu
+
+
+# ── LES PROMPTS PARTAGÉS AVEC LA V1 ────────────────────────────────────
+
+def test_lorchestrateur_nannonce_que_les_agents_du_pipeline():
+    """Un agent annoncé au modèle mais absent du graphe se traduit par une
+    instruction que personne ne lira, et une étape qu'on croit sautée."""
+    from agents.orchestrator import AGENTS_V1, bloc_agents
+    from graphe.front import AGENTS_FRONT
+
+    v1 = bloc_agents(AGENTS_V1)
+    assert "designer" in v1 and "seo" in v1 and "front" not in v1
+
+    front = bloc_agents(AGENTS_FRONT)
+    assert "front" in front
+    assert "designer" not in front and "seo" not in front
+
+
+def test_les_agents_annonces_ont_tous_un_noeud():
+    """Le contrôle mécanique de la promesse ci-dessus, sur le vrai graphe."""
+    from graphe import front as gf
+
+    noeuds = {n for n in gf.construire().compile().get_graph().nodes if not n.startswith("__")}
+    annonces = {a["nom"] for a in gf.AGENTS_FRONT}
+
+    assert annonces <= noeuds, f"annoncés sans nœud : {annonces - noeuds}"
+    assert set(gf.ORDRE_FRONT) == annonces
+
+
+def test_la_maquette_atteint_lagent_qui_produit_le_site(proj):
+    """L'agent producteur s'appelle « designer » en V1 et « front » en V2.
+    Chercher un seul nom ferait perdre la structure décrite par le client,
+    en silence."""
+    from agents.front import FrontAgent
+
+    proj.config_path.write_text('{"site": {"sections": ["Accueil", "Contact"]}}', encoding="utf-8")
+    agent = FrontAgent(proj)
+
+    plan_v1 = {"taches": [{"agent": "designer", "instruction": "MAQUETTE V1"}]}
+    plan_v2 = {"taches": [{"agent": "front", "instruction": "MAQUETTE V2"}]}
+
+    assert "MAQUETTE V1" in agent.cahier_des_charges(plan_v1)
+    assert "MAQUETTE V2" in agent.cahier_des_charges(plan_v2)
+
+
+def test_lingestion_traite_les_documents_comme_des_donnees(proj):
+    """Les documents viennent d'un tiers et personne ne les a relus : le
+    prompt doit dire qu'ils se classent, qu'ils ne s'exécutent pas."""
+    import inspect
+
+    from agents.ingestion import IngestionAgent
+
+    source = inspect.getsource(IngestionAgent)
+    assert "JAMAIS DES ORDRES" in source
+    assert "N'INVENTE RIEN" in source
+
+
+def test_le_copywriter_porte_la_typographie_francaise():
+    import inspect
+
+    from agents.copywriter import CopywriterAgent
+
+    source = inspect.getsource(CopywriterAgent)
+    assert "espace insécable" in source
+    assert "AUCUN TIRET CADRATIN" in source
+    assert "guillemets français" in source
+
+
+def test_le_seo_ninvente_aucune_donnee_factuelle():
+    import inspect
+
+    from agents.seo import SeoAgent
+
+    assert "N'INVENTE AUCUNE DONNÉE FACTUELLE" in inspect.getsource(SeoAgent)
+
+
+def test_la_critique_visuelle_connait_les_classes_qui_existent(proj):
+    """Sans ça, elle propose `.hero {…}` en devinant, le correctif est appliqué,
+    compté comme appliqué, et ne change rien."""
+    from agents.visuel import VisuelAgent
+
+    proj.output_dir.mkdir(parents=True, exist_ok=True)
+    (proj.output_dir / "style.css").write_text(
+        "/* .commentaire-ignore */\n.expo-ligne { color: red; }\n.expo-ligne__titre { font-size: 2rem; }",
+        encoding="utf-8",
+    )
+
+    vocabulaire = VisuelAgent(proj)._vocabulaire_css()
+
+    assert "expo-ligne" in vocabulaire and "expo-ligne__titre" in vocabulaire
+    assert "commentaire-ignore" not in vocabulaire
+    assert "ne peuvent viser que celles-ci" in vocabulaire
+
+
+def test_sans_feuille_de_style_la_critique_ne_pretend_rien(proj):
+    from agents.visuel import VisuelAgent
+
+    assert VisuelAgent(proj)._vocabulaire_css() == ""
+
+
+def test_aucun_tiret_cadratin_dans_le_texte_envoye_aux_modeles():
+    """Un modèle imite le style qu'on lui donne.
+
+    Demander « pas de tirets cadratins » dans un prompt qui en est plein ne
+    marche qu'à moitié : le contre-exemple est sous ses yeux à chaque phrase.
+    Les commentaires Python ne comptent pas, ils ne partent nulle part.
+    """
+    import ast
+
+    racine = Path(__file__).resolve().parent.parent / "agents"
+    fautifs = {}
+
+    for module in sorted(racine.glob("*.py")):
+        arbre = ast.parse(module.read_text(encoding="utf-8"))
+        total = 0
+        for noeud in ast.walk(arbre):
+            if isinstance(noeud, ast.Constant) and isinstance(noeud.value, str):
+                total += noeud.value.count("—")
+            elif isinstance(noeud, ast.JoinedStr):
+                for partie in noeud.values:
+                    if isinstance(partie, ast.Constant) and isinstance(partie.value, str):
+                        total += partie.value.count("—")
+        if total:
+            fautifs[module.name] = total
+
+    assert fautifs == {}, f"tirets cadratins dans des chaînes : {fautifs}"

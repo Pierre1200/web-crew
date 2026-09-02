@@ -61,30 +61,35 @@ def squelette(etat: EtatCrew) -> dict:
     return {"journal": [f"squelette : {len(rapport['ecrits'])} fichier(s), deps {'installées' if installe else 'déjà là'}"]}
 
 
+# LES AGENTS DU GRAPHE FRONT, tels que l'orchestrateur doit les connaître.
+# Le designer de la V1 n'existe pas ici : la charte et le front le remplacent,
+# et le référencement est assuré par le squelette lui-même (metadata,
+# sitemap.ts, robots.ts). Annoncer au modèle des agents qu'on n'exécute pas,
+# c'est lui faire écrire une instruction que personne ne lira.
+AGENTS_FRONT = [
+    {
+        "nom": "copywriter", "priorite": 1,
+        "role": "rédige tous les textes du site à partir des sections définies dans le brief",
+        "quand": "toujours, pour un site vitrine",
+    },
+    {
+        "nom": "front", "priorite": 2,
+        "role": (
+            "écrit le modèle de contenu, la couture de lecture, les composants "
+            "et les pages Next à partir d'un squelette déjà validé. C'est lui "
+            "qui porte la maquette : son instruction doit décrire la structure "
+            "voulue, section par section"
+        ),
+        "quand": "toujours, pour un site vitrine",
+    },
+]
+
+ORDRE_FRONT = ("copywriter", "front")
+
+
 def orchestration_front(etat: EtatCrew) -> dict:
-    """L'orchestration de la V1, plus un avertissement propre au front.
-
-    Le prompt de l'orchestrateur connaît trois agents : copywriter, designer et
-    seo. Le graphe front n'en a qu'un, `copywriter` : le designer est remplacé
-    par la charte et le front, et le référencement est assuré par le squelette
-    lui-même (metadata, sitemap.ts, robots.ts).
-
-    L'instruction écrite POUR le designer n'est pas perdue pour autant : c'est
-    elle que `cahier_des_charges()` transmet au front. Mais lire
-    « designer, seo » dans le journal sans les voir tourner ferait croire à un
-    nœud sauté par erreur. On le dit une fois, ici.
-    """
-    resultat = noeuds.orchestration(etat)
-
-    sans_noeud = [a for a in resultat.get("agents_planifies", [])
-                  if a not in ("copywriter",)]
-    if sans_noeud:
-        typer.echo(
-            f"   ℹ️  {sans_noeud} n'ont pas de nœud dans le graphe front. "
-            "Leur travail est fait par la charte, le front et le squelette."
-        )
-
-    return resultat
+    """Le plan de travail, avec les agents que CE graphe sait exécuter."""
+    return noeuds.orchestrer(etat, AGENTS_FRONT, ORDRE_FRONT)
 
 
 def charte(etat: EtatCrew) -> dict:

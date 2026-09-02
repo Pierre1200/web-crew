@@ -23,7 +23,7 @@ from langgraph.types import interrupt
 from agents.copywriter import CopywriterAgent
 from agents.designer import DesignerAgent
 from agents.direction import DirectionAgent
-from agents.orchestrator import OrchestratorAgent
+from agents.orchestrator import AGENTS_V1, OrchestratorAgent
 from agents.seo import SeoAgent
 from utils.project import Project
 
@@ -82,23 +82,33 @@ def ingestion(etat: EtatCrew) -> dict:
 
 
 def orchestration(etat: EtatCrew) -> dict:
-    """Le plan de travail : quels agents, dans quel ordre, avec quel style."""
+    """Le plan de travail de la V1 : copywriter, designer, seo."""
+    return orchestrer(etat, AGENTS_V1, ORDRE_AGENTS)
+
+
+def orchestrer(etat: EtatCrew, agents: list[dict], ordre: tuple[str, ...]) -> dict:
+    """L'orchestration, partagée par les deux graphes.
+
+    `agents` est ce que le modèle a le droit de planifier, `ordre` ce que le
+    graphe appelant sait exécuter. Les deux doivent se correspondre : c'est
+    vérifié à chaque run plutôt que supposé.
+    """
     with mesurer("orchestration") as facture:
-        plan = OrchestratorAgent(_projet(etat)).run({})
+        plan = OrchestratorAgent(_projet(etat)).run({"agents_disponibles": agents})
 
     planifies = [t["agent"] for t in plan["taches"]]
 
     # L'hypothèse de topologie figée, vérifiée à chaque run (voir ORDRE_AGENTS).
-    attendus = [a for a in ORDRE_AGENTS if a in planifies]
+    attendus = [a for a in ordre if a in planifies]
     reels = [t["agent"] for t in sorted(plan["taches"], key=lambda t: t["priorite"])
-             if t["agent"] in ORDRE_AGENTS]
+             if t["agent"] in ordre]
     if attendus != reels:
         typer.echo(
             f"   ⚠️  L'orchestrateur demande l'ordre {reels}, le graphe applique "
             f"{attendus}. Vérifier avant de comparer à la V1."
         )
 
-    inconnus = [a for a in planifies if a not in ORDRE_AGENTS]
+    inconnus = [a for a in planifies if a not in ordre]
     if inconnus:
         typer.echo(f"   ⚠️  Agent(s) hors du graphe, ignoré(s) : {inconnus}")
 

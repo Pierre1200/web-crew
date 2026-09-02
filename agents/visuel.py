@@ -1,5 +1,5 @@
 """
-Agent Critique visuelle — REGARDE le site rendu et juge ce qu'il voit.
+Agent Critique visuelle, REGARDE le site rendu et juge ce qu'il voit.
 
 Le chaînon qui manquait. Le validateur prouve que le HTML est valide, la
 critique de contenu vérifie les faits : ni l'un ni l'autre ne peut dire si
@@ -17,6 +17,7 @@ from __future__ import annotations
 import typer
 
 from agents.base_agent import BaseAgent
+from utils.cleaners import extract_css_classes
 from utils.capture import capturer_site, CaptureIndisponible
 from utils.cleaners import compact_json
 from utils.pages import collections_declarees
@@ -37,7 +38,7 @@ class VisuelAgent(BaseAgent):
     def __init__(self, project):
         super().__init__(
             name="visuel",
-            role="Critique visuelle — juge le rendu réel du site",
+            role="Critique visuelle, juge le rendu réel du site",
             project=project,
         )
 
@@ -116,8 +117,7 @@ class VisuelAgent(BaseAgent):
     def _construire_blocs(self, images: list[dict], contexte: str) -> list:
         """Assemble le message mixte : consignes, puis chaque image légendée.
 
-        Chaque image est précédée d'un court texte qui dit ce qu'on regarde —
-        sans ça, le modèle ne sait pas si la 4e image est le bas de la page
+        Chaque image est précédée d'un court texte qui dit ce qu'on regarde,         sans ça, le modèle ne sait pas si la 4e image est le bas de la page
         bureau ou le haut de la page mobile.
         """
         blocs = [{"type": "text", "text": contexte}]
@@ -139,21 +139,21 @@ d'un site qui vient d'être produit, et le cahier des charges du client.
 Ton travail : dire honnêtement si ce rendu est livrable, et sinon pourquoi.
 
 Tu regardes, dans cet ordre de priorité :
-1. CONFORMITÉ AU CAHIER DES CHARGES — structure, ordre des blocs, répartition \
+1. CONFORMITÉ AU CAHIER DES CHARGES : structure, ordre des blocs, répartition \
 des colonnes, présence ou absence de navigation, contraintes explicites. Un \
 écart ici est BLOQUANT, même si la page est jolie.
-2. COMPOSITION — hiérarchie (une chose domine-t-elle par écran ?), rythme \
+2. COMPOSITION : hiérarchie (une chose domine-t-elle par écran ?), rythme \
 vertical (les sections respirent-elles différemment ou tout est-il uniforme ?), \
 alignements, marges, équilibre des masses.
-3. TYPOGRAPHIE — échelle cohérente, largeur de lecture raisonnable, interlignage, \
+3. TYPOGRAPHIE : échelle cohérente, largeur de lecture raisonnable, interlignage, \
 contraste de graisses, titres qui ne se noient pas. Signale les lignes veuves \
 (un mot seul en fin de titre) et les alignements qui décrochent d'une carte à \
 l'autre : ce sont les défauts qui trahissent un travail non fini.
-4. COULEUR ET LISIBILITÉ — contraste texte/fond suffisant, palette tenue, \
+4. COULEUR ET LISIBILITÉ : contraste texte/fond suffisant, palette tenue, \
 accent utilisé avec parcimonie.
-5. RESPONSIVE — le rendu mobile est-il pensé, ou juste écrasé ? Débordements, \
+5. RESPONSIVE : le rendu mobile est-il pensé, ou juste écrasé ? Débordements, \
 textes coupés, images déformées, cibles tactiles trop petites.
-6. SIGNATURE « GABARIT » — le site a-t-il l'air fabriqué à la chaîne ? \
+6. SIGNATURE « GABARIT » : le site a-t-il l'air fabriqué à la chaîne ? \
 (hero plein écran générique, trois cartes identiques, tout centré, animations \
 partout, aucune personnalité liée au secteur du client).
 
@@ -162,10 +162,12 @@ Ne félicite pas : décris ce qui cloche et comment le corriger.
 Chaque problème doit venir avec une correction CSS applicable telle quelle \
 (sélecteur + propriétés). Si un problème ne peut PAS se régler en CSS \
 (structure HTML absente, section manquante), laisse "correction_css" vide et \
-dis-le dans le constat.
+dis-le dans le constat. Un correctif dont tu n'es pas sûr qu'il vise une \
+classe existante vaut moins que pas de correctif : dans le doute, décris le \
+problème et laisse "correction_css" vide.
 
-Écris ces correctifs en CSS moderne — container queries, :has(), color-mix(), \
-text-wrap, propriétés logiques — et SANS `!important` : ils sont insérés hors \
+Écris ces correctifs en CSS moderne, container queries, :has(), color-mix(), \
+text-wrap, propriétés logiques, et SANS `!important` : ils sont insérés hors \
 couche en fin de feuille, ce qui leur donne déjà la priorité sur tout le reste.
 
 Réponds UNIQUEMENT en JSON valide, sans balise markdown."""
@@ -188,7 +190,7 @@ Réponds UNIQUEMENT en JSON valide, sans balise markdown."""
             return ""
         return f"""
 
-DIRECTION ARTISTIQUE QUI AVAIT ÉTÉ ARRÊTÉE — le rendu doit l'exécuter :
+DIRECTION ARTISTIQUE QUI AVAIT ÉTÉ ARRÊTÉE. Le rendu doit l'exécuter :
 {compact_json(direction)}
 
 Juge d'abord l'ÉCART entre ces décisions et ce que tu vois : archétype de mise
@@ -197,11 +199,44 @@ usage de l'accent respecté, éléments animés limités à la liste fermée. Un
 avec la direction est au minimum « majeur ». Et si le rendu n'incarne pas la
 « signature » annoncée, dis-le franchement."""
 
+    def _vocabulaire_css(self) -> str:
+        """Les classes réellement présentes dans la feuille servie.
+
+        SANS ÇA, LA CRITIQUE ÉCRIT DES CORRECTIFS QUI NE S'APPLIQUENT À RIEN.
+        Elle ne voit que des images : elle propose donc `.hero { ... }` en
+        devinant, alors que le site utilise `.accueil__banniere`. Le correctif
+        est écrit, appliqué, compté comme appliqué, et ne change rien. C'est le
+        pire cas de figure : on paie une passe et on croit avoir corrigé.
+
+        La lecture marche pour les deux générations : la V1 range tout dans
+        output/style.css, l'export Next dans out/_next/static/chunks/*.css.
+        """
+        import re
+
+        classes = set()
+        for feuille in sorted(self.project.output_dir.rglob("*.css")):
+            sans_commentaires = re.sub(
+                r"/\*.*?\*/", " ", feuille.read_text(encoding="utf-8", errors="ignore"),
+                flags=re.DOTALL,
+            )
+            classes |= set(extract_css_classes(sans_commentaires))
+
+        if not classes:
+            return ""
+
+        return (
+            "\n\nCLASSES RÉELLEMENT PRÉSENTES DANS LA FEUILLE DU SITE. Tes "
+            "correctifs ne peuvent viser que celles-ci, ou des sélecteurs de "
+            "balise et d'attribut. Un sélecteur inventé produit un correctif "
+            "qui ne s'applique à rien, et personne ne s'en aperçoit :\n"
+            + ", ".join(sorted(classes))
+        )
+
     def _prompt_contexte(self, plan: dict) -> str:
         cahier = self.cahier_des_charges(plan)
         style_guide = plan.get("style_guide", {})
 
-        return f"""{cahier}{self._lire_direction()}
+        return f"""{cahier}{self._lire_direction()}{self._vocabulaire_css()}
 
 Identité visuelle décidée pour ce projet :
 {compact_json(style_guide)}
@@ -212,8 +247,8 @@ l'absence d'animation, juge la composition figée que tu vois.
 
 Produis un JSON avec exactement cette structure :
 {{
-  "score": <entier 0 à 10 — 10 = livrable tel quel à un client payant>,
-  "conforme_au_brief": <true/false — la structure demandée est-elle respectée ?>,
+  "score": <entier 0 à 10, 10 = livrable tel quel à un client payant>,
+  "conforme_au_brief": <true/false, la structure demandée est-elle respectée ?>,
   "verdict": "<2 phrases : ce qui marche, ce qui bloque>",
   "problemes": [
     {{
@@ -248,7 +283,7 @@ Produis un JSON avec exactement cette structure :
             plan = self.read_json("temp/plan.json")
         except (OSError, ValueError):
             plan = {}
-            self.logger.warning("plan.json illisible — critique sans cahier des charges")
+            self.logger.warning("plan.json illisible, critique sans cahier des charges")
 
         blocs = self._construire_blocs(images, self._prompt_contexte(plan))
 
@@ -270,7 +305,7 @@ Produis un JSON avec exactement cette structure :
 
         etiquette = {True: "✅ conforme au brief",
                      False: "❌ NON conforme au brief"}.get(conforme, "conformité inconnue")
-        typer.echo(f"\n   🎨 Score visuel : {score}/10 — {etiquette}")
+        typer.echo(f"\n   🎨 Score visuel : {score}/10, {etiquette}")
 
         if critique.get("verdict"):
             typer.echo(f"   💬 {critique['verdict']}")
@@ -282,7 +317,7 @@ Produis un JSON avec exactement cette structure :
                 p.get("gravite"), "·"
             )
             typer.echo(
-                f"   {icone} [{p.get('format', '?')}] {p.get('zone', '?')} — "
+                f"   {icone} [{p.get('format', '?')}] {p.get('zone', '?')}, "
                 f"{p.get('constat', '')}"
             )
 
@@ -293,6 +328,6 @@ Produis un JSON avec exactement cette structure :
         )
         if problemes and not corrigeables:
             typer.echo(
-                "   ℹ️  Aucun problème corrigeable en CSS — il faut régénérer "
+                "   ℹ️  Aucun problème corrigeable en CSS, il faut régénérer "
                 "(design-only --replan) ou préciser le brief."
             )

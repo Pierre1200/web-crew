@@ -22,7 +22,7 @@ FIXABLE_TYPES = {
 
 
 class ValidatorAgent(BaseAgent):
-    """Inspecte le site généré et détecte les problèmes — sans appeler l'IA.
+    """Inspecte le site généré et détecte les problèmes, sans appeler l'IA.
 
     ⚠️ CET AGENT NE CONTACTE JAMAIS L'API. Il hérite bien de MODEL et EFFORT de
     BaseAgent, mais ces réglages ne servent à rien ici : aucun appel n'est émis,
@@ -46,7 +46,7 @@ class ValidatorAgent(BaseAgent):
     def __init__(self, project: Project):
         super().__init__(
             name="validator",
-            role="Validateur — contrôle qualité du site généré",
+            role="Validateur, contrôle qualité du site généré",
             project=project
         )
         self.problemes = []
@@ -136,7 +136,7 @@ class ValidatorAgent(BaseAgent):
     def check_css_moderne(self, css: str):
         """Contrôle les exigences CSS que le prompt du designer impose.
 
-        Trois points objectifs, tous non bloquants — le site reste livrable,
+        Trois points objectifs, tous non bloquants, le site reste livrable,
         mais chacun signale une feuille moins solide qu'elle ne devrait l'être.
         """
         if not css:
@@ -148,7 +148,7 @@ class ValidatorAgent(BaseAgent):
         if "@layer" not in css:
             self._pb(
                 "cascade_sans_layer", "warning",
-                "CSS sans @layer — les correctifs visuels automatiques risquent "
+                "CSS sans @layer, les correctifs visuels automatiques risquent "
                 "d'être battus par des règles existantes plus spécifiques",
             )
 
@@ -157,7 +157,7 @@ class ValidatorAgent(BaseAgent):
         if "prefers-reduced-motion" not in css:
             self._pb(
                 "motion_non_geree", "warning",
-                "Aucun @media (prefers-reduced-motion) — les animations "
+                "Aucun @media (prefers-reduced-motion), les animations "
                 "s'imposeront aux visiteurs qui les ont désactivées",
             )
 
@@ -167,21 +167,21 @@ class ValidatorAgent(BaseAgent):
         if nb_important > 8:
             self._pb(
                 "cascade_forcee", "warning",
-                f"{nb_important} !important dans le CSS — cascade mal maîtrisée, "
+                f"{nb_important} !important dans le CSS, cascade mal maîtrisée, "
                 "les correctifs ultérieurs seront difficiles à appliquer",
             )
 
     def check_viewport(self, html: str):
-        """Vérifie la présence de la meta viewport — critique pour le responsive."""
+        """Vérifie la présence de la meta viewport, critique pour le responsive."""
         if html and '<meta name="viewport"' not in html:
             self._pb("viewport_manquant", "erreur",
-                     "Meta viewport manquante — site non responsive sur mobile")
+                     "Meta viewport manquante, site non responsive sur mobile")
 
     def check_h1(self, html: str):
         """Vérifie la présence d'au moins un <h1> pour le SEO."""
         if html and '<h1' not in html.lower():
             self._pb("h1_manquant", "warning",
-                     "Aucun <h1> trouvé — structure SEO incorrecte")
+                     "Aucun <h1> trouvé, structure SEO incorrecte")
 
     def check_web_fonts(self, html: str, css: str):
         """Vérifie qu'une police web est chargée (Google Fonts ou @import CSS)."""
@@ -191,18 +191,18 @@ class ValidatorAgent(BaseAgent):
         has_import = bool(css) and '@import' in css and 'font' in css.lower()
         if not has_gfonts and not has_import:
             self._pb("fonts_manquantes", "warning",
-                     "Aucune police web chargée — le site utilisera les polices système")
+                     "Aucune police web chargée, le site utilisera les polices système")
 
     def check_formulaires(self, html: str):
         """Détecte les formulaires factices : un <form> sans attribut action
-        n'envoie rien nulle part — le visiteur croit avoir écrit au client.
+        n'envoie rien nulle part, le visiteur croit avoir écrit au client.
         """
         if not html:
             return
         for form_tag in re.findall(r'<form[^>]*>', html):
             if 'action=' not in form_tag:
                 self._pb("formulaire_sans_action", "warning",
-                         "Formulaire sans attribut action — aucun envoi réel "
+                         "Formulaire sans attribut action, aucun envoi réel "
                          "(renseigne site.formspree_id dans config.json)")
 
     def check_medias(self, html: str):
@@ -216,7 +216,7 @@ class ValidatorAgent(BaseAgent):
         try:
             manifeste = construire_manifeste(self.load_config())
         except (OSError, ValueError) as e:
-            self.logger.info(f"config.json illisible — médias non vérifiés : {e}")
+            self.logger.info(f"config.json illisible, médias non vérifiés : {e}")
             return
 
         for erreur in manifeste["erreurs"]:
@@ -233,7 +233,7 @@ class ValidatorAgent(BaseAgent):
     def check_images(self, html: str, css: str):
         """Contrôle les vraies images du client : liens cassés, oubliées, remplissage.
 
-        Inspection pure — le validateur ne copie ni ne modifie rien, il compare
+        Inspection pure, le validateur ne copie ni ne modifie rien, il compare
         ce que le HTML référence à ce qui existe réellement sur le disque.
         """
         if not html:
@@ -286,7 +286,7 @@ class ValidatorAgent(BaseAgent):
             self._pb(
                 "placeholder_en_production", "warning",
                 f"{nb_placeholders} image(s) de remplissage alors que le client "
-                "a fourni ses propres visuels — à remplacer avant livraison",
+                "a fourni ses propres visuels, à remplacer avant livraison",
             )
 
     def check_pages_collections(self):
@@ -350,7 +350,7 @@ class ValidatorAgent(BaseAgent):
                 self._pb(
                     "collection_vide", "warning",
                     f"Collection « {collection['titre']} » déclarée mais non "
-                    f"générée — dépose des fichiers .txt dans "
+                    f"générée, dépose des fichiers .txt dans "
                     f"data/{collection['source']}/ puis lance `pages`",
                     collection=collection["id"],
                 )
@@ -364,7 +364,7 @@ class ValidatorAgent(BaseAgent):
         try:
             textes = self.read_json("temp/textes.json")
         except Exception as e:
-            self.logger.info(f"textes.json illisible — check de contenu sauté : {e}")
+            self.logger.info(f"textes.json illisible, check de contenu sauté : {e}")
             return
         for section, contenu in textes.items():
             vide = not contenu or (isinstance(contenu, str) and not contenu.strip())
@@ -382,7 +382,7 @@ class ValidatorAgent(BaseAgent):
             textes = self.read_json("temp/textes.json")
             sections_keywords = [k.replace("_", "-") for k in textes.keys()]
         except Exception as e:
-            self.logger.info(f"textes.json illisible — sections non vérifiées : {e}")
+            self.logger.info(f"textes.json illisible, sections non vérifiées : {e}")
 
         html = self._lire("index.html")
         css = self._lire("style.css")
@@ -408,7 +408,7 @@ class ValidatorAgent(BaseAgent):
         warnings = [p for p in self.problemes if p["niveau"] == "warning"]
 
         if not self.problemes:
-            typer.echo("✅ Aucun problème détecté — le site est valide !")
+            typer.echo("✅ Aucun problème détecté, le site est valide !")
         else:
             typer.echo(f"⚠️  {len(erreurs)} erreur(s), {len(warnings)} warning(s) :")
             for p in self.problemes:
@@ -416,7 +416,7 @@ class ValidatorAgent(BaseAgent):
                 typer.echo(f"   {icone} {p['message']}")
 
         for p in self.problemes:
-            self.logger.info(f"[{p['niveau']}] {p['type']} — {p['message']}")
+            self.logger.info(f"[{p['niveau']}] {p['type']}, {p['message']}")
 
         # Seules les ERREURS invalident le site : les warnings sont des points
         # d'attention, pas des blocages (avant, tout invalidait, et la boucle

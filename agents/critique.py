@@ -1,12 +1,13 @@
 """
-Agent Critique — contrôle la QUALITÉ DU CONTENU produit par le copywriter.
+Agent Critique, contrôle la QUALITÉ DU CONTENU produit par le copywriter.
 
 Complémentaire du validateur : le validateur vérifie la STRUCTURE (HTML
-complet, classes cohérentes...), le critique vérifie le FOND — sections
+complet, classes cohérentes...), le critique vérifie le FOND, sections
 creuses, texte passe-partout, et surtout FAITS INVENTÉS par rapport aux
 données réellement fournies par le client (temp/context.json).
-Un appel Haiku par contrôle : la supervision de contenu coûte quelques
-centimes, pas une relecture humaine complète.
+Un appel par contrôle : la supervision de contenu coûte quelques centimes,
+pas une relecture humaine complète. Le modèle est déclaré sur la classe, et il
+a changé depuis : voir le commentaire qui l'accompagne.
 """
 from __future__ import annotations
 import typer
@@ -27,7 +28,7 @@ class CritiqueAgent(BaseAgent):
     def __init__(self, project):
         super().__init__(
             name="critique",
-            role="Critique — contrôle le fond des textes générés",
+            role="Critique, contrôle le fond des textes générés",
             project=project,
         )
 
@@ -37,7 +38,7 @@ class CritiqueAgent(BaseAgent):
         textes_path = self.project.temp_dir / "textes.json"
         if not textes_path.exists():
             raise FileNotFoundError(
-                "temp/textes.json introuvable — lance d'abord generate "
+                "temp/textes.json introuvable, lance d'abord generate "
                 "(le critique relit le travail du copywriter)."
             )
         textes = self.read_json("temp/textes.json")
@@ -50,12 +51,12 @@ class CritiqueAgent(BaseAgent):
         # est suspect (le copywriter n'avait aucune source pour l'affirmer).
         if ctx.get("contenu_par_theme"):
             bloc_reference = f"""
-Données RÉELLES fournies par le client — seule source de vérité factuelle :
+Données RÉELLES fournies par le client, seule source de vérité factuelle :
 {compact_json(ctx["contenu_par_theme"])}"""
         else:
             bloc_reference = """
 Aucune donnée client n'a été ingérée : tout fait précis (adresse, horaire,
-téléphone, nom propre, date, tarif) est par définition inventé — signale-le."""
+téléphone, nom propre, date, tarif) est par définition inventé, signale-le."""
 
         system_prompt = """Tu es un relecteur éditorial rigoureux pour sites vitrines.
 On te donne les textes générés, les sections prévues, et les données réelles du client.
@@ -92,12 +93,12 @@ Produis un JSON avec cette structure exacte :
         problemes = critique.get("problemes", [])
         inventions = [p for p in problemes if p.get("type") == "invention"]
 
-        typer.echo(f"   📝 Score contenu : {score}/10 — {len(problemes)} problème(s)")
+        typer.echo(f"   📝 Score contenu : {score}/10, {len(problemes)} problème(s)")
         for p in problemes:
             icone = "❌" if p.get("type") == "invention" else "⚠️ "
             typer.echo(f"   {icone} [{p.get('type', '?')}] {p.get('section', '?')} : {p.get('detail', '')}")
         if inventions:
-            typer.echo(f"   🚨 {len(inventions)} invention(s) factuelle(s) — à vérifier avant livraison !")
+            typer.echo(f"   🚨 {len(inventions)} invention(s) factuelle(s), à vérifier avant livraison !")
         if critique.get("resume"):
             typer.echo(f"   💬 {critique['resume']}")
 

@@ -158,6 +158,39 @@ Nouveautés notables :
   voyagent entre marqueurs de ligne), et **la charte ne renvoie que des
   valeurs** que Python pose lui-même dans les tokens.
 
+### Étape 5 bis. La revue des prompts
+
+Pierre a explicitement autorisé la modification de TOUS les prompts du dépôt,
+V1 comprise.
+
+**Conséquence à connaître : l'équivalence de sortie promise à l'étape 2 n'est
+plus exacte.** La commande `graphe` reproduit toujours la structure du pipeline
+V1, mais ses prompts ont changé. Comparer sa sortie à celle de `generate-safe`
+ne mesure donc plus une migration : ça mesure aussi une amélioration de prompt.
+Le critère d'arrêt reste valable (« au moins équivalent à la V1 »), le
+protocole de comparaison ligne à ligne ne l'est plus.
+
+Ce qui a changé, et pourquoi :
+
+- **la critique visuelle reçoit les classes réellement présentes** dans la
+  feuille servie. Avant, elle proposait `.hero {…}` en devinant : le correctif
+  était écrit, appliqué, compté comme appliqué, et ne changeait rien ;
+- **le registre d'agents de l'orchestrateur est devenu une donnée**, passée par
+  le graphe appelant. Chaque pipeline annonce au modèle les agents qu'il sait
+  exécuter, et rien d'autre ;
+- **`cahier_des_charges()` cherche l'instruction du producteur sous ses deux
+  noms**, `front` en V2 et `designer` en V1 ;
+- **l'ingestion sait que les documents clients sont des données**, pas des
+  ordres. Ils viennent d'un tiers, personne ne les a relus, et ils entraient
+  jusque-là dans le prompt sans le moindre garde-fou ;
+- **le copywriter porte la typographie française** (espaces insécables,
+  guillemets, apostrophes) et la règle de maison sur les tirets cadratins ;
+- **le SEO n'invente plus d'adresse** : un schema.org est lu par les moteurs
+  comme une déclaration du client ;
+- **170 tirets cadratins ont été retirés du texte envoyé aux modèles.** Un
+  modèle imite le style qu'on lui donne : demander de les éviter dans un prompt
+  qui en est plein ne marche qu'à moitié. Un test le vérifie désormais.
+
 ### Étape 5. La revue complète
 
 Demandée par Pierre. Elle a trouvé quatre pannes silencieuses, toutes du même
@@ -294,11 +327,8 @@ vrais clients payants : une affirmation optimiste lui coûte une soirée.
 4. **Séparer le modèle de contenu des pages** dans le graphe front, avec un
    second feu vert entre les deux, comme `DEMARRAGE-V2.md` le demande.
    Aujourd'hui `FrontAgent` produit les deux en un appel.
-5. **Décider du sort de l'orchestrateur.** Son prompt planifie `designer` et
-   `seo`, qui n'ont pas de nœud dans le graphe front. Ce n'est pas du
-   gaspillage (l'instruction du designer est ce que `cahier_des_charges()`
-   transmet au front), mais un prompt propre au front serait plus honnête.
-   Attention : le modifier casse l'équivalence V1 de l'étape 2.
+5. **Le sort de l'orchestrateur est réglé** : son registre d'agents est
+   maintenant une donnée passée par le graphe. Rien à faire de ce côté.
 6. Tenir ce journal à jour : y écrire ce que le premier run réel
    révèle, et faire passer les lignes correspondantes du chapitre 6 de
    « jamais vérifié » à « vérifié, et voici comment ».

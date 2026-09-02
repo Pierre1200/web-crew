@@ -1,10 +1,9 @@
 """
-Agent Direction artistique — décide de la composition AVANT d'écrire du code.
+Agent Direction artistique, décide de la composition AVANT d'écrire du code.
 
 Le problème qu'il résout : jusqu'ici, le seul cadrage visuel transmis au
-designer était `style_guide` (cinq couleurs et deux polices). Tout le reste —
-archétype de mise en page, échelle d'espacement, rythme des sections,
-traitement des surfaces, politique de mouvement — était décidé implicitement
+designer était `style_guide` (cinq couleurs et deux polices). Tout le reste, archétype de mise en page, échelle d'espacement, rythme des sections,
+traitement des surfaces, politique de mouvement, était décidé implicitement
 par le designer, au milieu de la génération de 25 000 tokens de code. C'est le
 pire moment pour faire des choix de composition : le modèle est occupé à
 intégrer.
@@ -14,7 +13,7 @@ direction, ensuite on l'exécute. Il produit `temp/direction.json`, un petit
 document de décisions CONCRÈTES (des valeurs, pas des conseils) que le designer
 applique et que la critique visuelle vérifie.
 
-Coût : une petite sortie JSON, ~0,15 $ — la décision la plus structurante du
+Coût : une petite sortie JSON, ~0,15 $, la décision la plus structurante du
 pipeline pour un dixième du prix de la génération qu'elle oriente.
 """
 from __future__ import annotations
@@ -37,7 +36,7 @@ ARCHETYPES = {
     "panneau-fixe":
         "une colonne fixe (identité, navigation) et une colonne qui défile",
     "vitrine-sectionnee":
-        "sections empilées contrastées — le classique, à ne choisir que s'il "
+        "sections empilées contrastées, le classique, à ne choisir que s'il "
         "est réellement le plus juste pour ce client",
 }
 
@@ -59,7 +58,7 @@ class DirectionAgent(BaseAgent):
     def __init__(self, project):
         super().__init__(
             name="direction",
-            role="Direction artistique — arrête la composition du site",
+            role="Direction artistique, arrête la composition du site",
             project=project,
         )
 
@@ -73,7 +72,7 @@ chiffrées, directement applicables. « Varier le rythme vertical » est un cons
 inutile ; « hero 160px, à propos 64px, galerie 96px » est une décision.
 
 Choisis l'archétype de mise en page parmi ceux-ci, celui qui sert le mieux CE \
-client — pas celui qui rassure :
+client, pas celui qui rassure :
 {archetypes}
 
 Exigences :
@@ -96,7 +95,7 @@ Réponds UNIQUEMENT en JSON valide, sans balise markdown."""
         try:
             brief = self.read_text("brief.md")
         except OSError:
-            self.logger.warning("brief.md illisible — direction fondée sur config.json")
+            self.logger.warning("brief.md illisible, direction fondée sur config.json")
 
         contexte = self.lire_contexte_ingestion()
         bloc_contexte = ""
@@ -151,7 +150,7 @@ Produis un JSON avec exactement cette structure :
     "politique": "<ce qui bouge et ce qui ne bouge surtout pas>",
     "elements_animes": ["<liste courte et fermée>"]
   }},
-  "signature": "<ce qui rend ce site reconnaissable entre tous — 1 à 2 phrases>",
+  "signature": "<ce qui rend ce site reconnaissable entre tous, 1 à 2 phrases>",
   "pieges_a_eviter": ["<propres à CE projet>"]
 }}"""
 
@@ -162,7 +161,7 @@ Produis un JSON avec exactement cette structure :
             plan = self.read_json("temp/plan.json")
         except (OSError, ValueError):
             plan = {}
-            self.logger.warning("plan.json illisible — direction sans cadrage préalable")
+            self.logger.warning("plan.json illisible, direction sans cadrage préalable")
 
         reponse = self.call_claude(
             self._prompt_systeme(), self._prompt_utilisateur(plan), max_tokens=16000
@@ -172,7 +171,7 @@ Produis un JSON avec exactement cette structure :
         manquantes = CLES_ATTENDUES - set(direction)
         if manquantes:
             raise ValueError(
-                f"Direction artistique invalide — clés manquantes : {sorted(manquantes)}"
+                f"Direction artistique invalide, clés manquantes : {sorted(manquantes)}"
             )
 
         archetype = direction.get("archetype", "")
@@ -186,6 +185,6 @@ Produis un JSON avec exactement cette structure :
         typer.echo(f"   → Archétype retenu : {archetype}")
         if direction.get("signature"):
             typer.echo(f"   ✍️  Signature : {direction['signature']}")
-        self.logger.info(f"Direction artistique arrêtée — archétype {archetype!r}")
+        self.logger.info(f"Direction artistique arrêtée, archétype {archetype!r}")
 
         return direction

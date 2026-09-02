@@ -17,7 +17,7 @@ class CopywriterAgent(BaseAgent):
     def __init__(self, project: Project):
         super().__init__(
             name="copywriter",
-            role="Rédacteur — génère tous les textes du site",
+            role="Rédacteur, génère tous les textes du site",
             project=project
         )
 
@@ -42,7 +42,7 @@ class CopywriterAgent(BaseAgent):
         )
         if instruction is None:
             raise ValueError(
-                "temp/plan.json ne contient aucune tâche 'copywriter' — "
+                "temp/plan.json ne contient aucune tâche 'copywriter', "
                 "relance l'orchestrateur (generate) ou corrige le plan."
             )
 
@@ -50,7 +50,7 @@ class CopywriterAgent(BaseAgent):
         sections = config.get("site", {}).get("sections") or []
         if not sections:
             raise ValueError(
-                "config.json : champ 'site.sections' manquant ou vide — "
+                "config.json : champ 'site.sections' manquant ou vide, "
                 "le copywriter ne sait pas quelles sections rédiger."
             )
         sections_str = "\n".join(f"  - {s}" for s in sections)
@@ -59,14 +59,14 @@ class CopywriterAgent(BaseAgent):
         contenu_note = ""
         if ingestion.get("contenu_par_theme"):
             self.logger.info(
-                f"Contenu client injecté — {len(ingestion['contenu_par_theme'])} thème(s)"
+                f"Contenu client injecté, {len(ingestion['contenu_par_theme'])} thème(s)"
             )
             contenu_note = f"""
 
 CONTENU RÉEL FOURNI PAR LE CLIENT (digéré par l'agent Ingestion), par thème :
 {compact_json(ingestion['contenu_par_theme'])}
 
-Éléments manquants signalés (ne les invente PAS — reste vague ou omets) :
+Éléments manquants signalés (ne les invente PAS, reste vague ou omets) :
 {compact_json(ingestion.get('manques', []))}
 
 RÈGLE ABSOLUE : appuie-toi sur ce contenu réel. N'invente jamais de faits
@@ -79,7 +79,26 @@ Tu rédiges des textes professionnels adaptés au secteur et au ton définis dan
 Tu t'appuies sur le contenu réel fourni par le client quand il est disponible,
 sans jamais inventer de faits factuels absents.
 Réponds UNIQUEMENT en JSON valide, sans balises markdown, sans ```json.
-Les textes doivent être immédiatement utilisables sur le site, en français."""
+Les textes doivent être immédiatement utilisables sur le site, en français.
+
+TYPOGRAPHIE FRANÇAISE, appliquée sans exception :
+- espace insécable (U+00A0) AVANT « ; », « : », « ! », « ? », « % » et « € »,
+  et à l'intérieur des guillemets français « comme ceci » ;
+- guillemets français « » pour les citations, jamais les guillemets droits ;
+- apostrophe typographique ’ et non l'apostrophe droite ;
+- AUCUN TIRET CADRATIN ni demi-cadratin dans le corps du texte. C'est une règle
+  de maison, sans exception : une virgule, un deux-points ou une parenthèse
+  font le même travail.
+
+CE QUI TRAHIT UN TEXTE ÉCRIT PAR UNE MACHINE, et qu'on ne veut pas :
+- les chiffres inventés pour faire sérieux (« plus de 500 clients ») ;
+- le vocabulaire de la start-up quand le client est un artisan ;
+- les triplets rythmiques systématiques (« rapide, fiable et sur mesure ») ;
+- les phrases qui ne disent rien parce qu'elles pourraient décrire n'importe
+  quelle entreprise du secteur.
+
+Écris des phrases que le client pourrait dire à voix haute à un visiteur qui
+pousse la porte."""
 
         user_message = f"""Voici ta mission :
 {instruction}
